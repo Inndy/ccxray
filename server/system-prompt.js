@@ -16,10 +16,10 @@ function extractAgentType(sys) {
   const b2 = (sys[2]?.text || '').trim();
   // Primary: main Claude Code prompt
   if (b2.startsWith('You are an interactive agent')) return { key: 'claude-code', label: 'Claude Code' };
+  // Known sub-agents by b2 content (must come before b1 fallback — sub-agents also have b1="You are Claude Code")
+  if (b2.startsWith('Generate a concise')) return { key: 'title-generator', label: 'Title Generator' };
   // Fallback: older versions put the identity in b1
   if (b1.startsWith('You are Claude Code')) return { key: 'claude-code', label: 'Claude Code' };
-  // Known sub-agents by b2 content
-  if (b2.startsWith('Generate a concise')) return { key: 'title-generator', label: 'Title Generator' };
   // "You are a/an/the <role>" pattern
   const m = b2.match(/^You are (?:a |an |the )?(.+?)(?:\s+for\s|\s+that\s|\s+specializ|\s*[,.]|\n)/i);
   if (m) {

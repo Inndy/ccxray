@@ -159,7 +159,8 @@ const server = http.createServer((clientReq, clientRes) => {
           const coreText = splitB2IntoBlocks(b2).coreInstructions || '';
           const coreLen = coreText.length;
           const coreHash = crypto.createHash('md5').update(coreText).digest('hex').slice(0, 12);
-          store.versionIndex.set(idxKey, { reqId: null, b2Len: b2.length, coreLen, coreHash, firstSeen: now, agentKey, agentLabel, version: liveVer });
+          const sharedFile = sysHash ? `sys_${sysHash}.json` : null;
+          store.versionIndex.set(idxKey, { reqId: null, sharedFile, b2Len: b2.length, coreLen, coreHash, firstSeen: now, agentKey, agentLabel, version: liveVer });
           // Only notify if coreInstructions actually changed vs previous version
           const versions = [...store.versionIndex.values()].filter(v => v.agentKey === agentKey && v.version !== liveVer);
           const prev = versions.length ? versions.sort((a, b) => b.firstSeen.localeCompare(a.firstSeen))[0] : null;
