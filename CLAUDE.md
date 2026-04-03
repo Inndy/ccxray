@@ -9,11 +9,11 @@ A transparent HTTP proxy that sits between Claude Code and the Anthropic API. It
 ## Commands
 
 ```bash
-npm start                                        # Start proxy + dashboard on :5577
+npx ccxray claude                                # One command: proxy + Claude Code
+ccxray --port 8080 claude                        # Custom port
+ccxray                                           # Proxy + dashboard only
 npm run dev                                      # Dev mode (auto-restart on server/public changes)
 npm test                                         # Run tests
-PROXY_PORT=8080 npm start                        # Custom port
-ANTHROPIC_BASE_URL=http://localhost:5577 claude   # Point Claude Code at proxy
 ```
 
 No build step. No linting. Restart to apply changes.

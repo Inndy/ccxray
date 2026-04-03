@@ -1,5 +1,7 @@
 # ccxray
 
+**English** | [正體中文](README.zh-TW.md) | [日本語](README.ja.md)
+
 X-ray vision for AI agent sessions. A zero-config HTTP proxy that records every API call between Claude Code and Anthropic, with a real-time dashboard to inspect what's actually happening inside your agent.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -31,19 +33,20 @@ ccxray makes it a glass box.
 ## Quick Start
 
 ```bash
-# Install
-git clone https://github.com/lis186/ccxray.git
-cd ccxray
-npm install
-
-# Run
-npm start              # or: npm run dev (auto-restart on code changes)
-
-# Point Claude Code at the proxy
-ANTHROPIC_BASE_URL=http://localhost:5577 claude
+npx ccxray claude
 ```
 
-Dashboard opens at `http://localhost:5577`.
+That's it. Proxy starts, Claude Code launches through it, and the dashboard opens automatically in your browser.
+
+### Other ways to run
+
+```bash
+ccxray                           # Proxy + dashboard only
+ccxray claude --continue         # All claude args pass through
+ccxray --port 8080 claude        # Custom port
+ccxray claude --no-browser       # Skip auto-open browser
+ANTHROPIC_BASE_URL=http://localhost:5577 claude   # Manual setup (existing sessions)
+```
 
 ## How It Works
 
@@ -61,9 +64,19 @@ ccxray is a transparent HTTP proxy. It forwards requests to Anthropic unchanged,
 
 ## Configuration
 
-| Env Variable | Default | Description |
+### CLI flags
+
+| Flag | Description |
+|---|---|
+| `--port <number>` | Port for proxy + dashboard (default: 5577) |
+| `--no-browser` | Don't auto-open the dashboard in your browser |
+
+### Environment variables
+
+| Variable | Default | Description |
 |---|---|---|
-| `PROXY_PORT` | `5577` | Port for proxy + dashboard |
+| `PROXY_PORT` | `5577` | Port for proxy + dashboard (overridden by `--port`) |
+| `BROWSER` | — | Set to `none` to disable auto-open |
 | `STORAGE_BACKEND` | `local` | Storage adapter: `local` or `s3` |
 | `LOGS_DIR` | `./logs` | Log directory (local backend) |
 | `AUTH_TOKEN` | _(none)_ | API key for access control (disabled when unset) |

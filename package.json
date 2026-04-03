@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "X-ray vision for AI agent sessions — a transparent HTTP proxy and dashboard for Claude Code",
   "main": "server/index.js",
+  "bin": {
+    "ccxray": "server/index.js"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch-path=server --watch-path=public server/index.js",

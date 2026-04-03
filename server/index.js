@@ -16,6 +16,25 @@ const { broadcastSessionStatus, broadcastPendingRequest } = require('./sse-broad
 const { authMiddleware } = require('./auth');
 const { extractAgentType, splitB2IntoBlocks } = require('./system-prompt');
 
+// ── CLI: parse flags and detect "claude" subcommand ──
+const portIdx = process.argv.indexOf('--port');
+if (portIdx !== -1) {
+  const portVal = process.argv[portIdx + 1];
+  const parsed = parseInt(portVal, 10);
+  if (!portVal || isNaN(parsed) || parsed < 1 || parsed > 65535) {
+    console.error('\x1b[31mError: --port requires a valid port number (1-65535)\x1b[0m');
+    process.exit(1);
+  }
+  config.PORT = parsed;
+  process.argv.splice(portIdx, 2);
+}
+const claudeMode = process.argv[2] === 'claude';
+const claudeArgs = claudeMode ? process.argv.slice(3) : [];
+
+// In claude mode, mute startup logs so they don't pollute Claude Code's interactive UI.
+const _origLog = console.log;
+if (claudeMode) console.log = () => {};
+
 // Route handlers
 const { handleSSERoute } = require('./routes/sse');
 const { handleApiRoutes } = require('./routes/api');
@@ -26,15 +45,15 @@ const { handleCostRoutes } = require('./routes/costs');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const MIME_TYPES = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript' };
 
-// Pre-build index.html with config injection at startup
-const configScript = `<script>window.__PROXY_CONFIG__=${JSON.stringify({ DEFAULT_CONTEXT: config.DEFAULT_CONTEXT, PORT: config.PORT })}</script>`;
-let indexHTML = '';
-try {
-  const raw = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
-  indexHTML = raw.replace('<!--__PROXY_CONFIG__-->', configScript);
-} catch (e) {
-  console.error('Failed to load public/index.html:', e.message);
-  indexHTML = '<html><body>Error loading dashboard</body></html>';
+// index.html with config injection (port may shift, so rebuilt after listen)
+let rawIndexHTML = '';
+try { rawIndexHTML = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8'); } catch {}
+let indexHTML = rawIndexHTML || '<html><body>Error loading dashboard</body></html>';
+
+function rebuildIndexHTML(port) {
+  if (!rawIndexHTML) return;
+  const script = `<script>window.__PROXY_CONFIG__=${JSON.stringify({ DEFAULT_CONTEXT: config.DEFAULT_CONTEXT, PORT: port })}</script>`;
+  indexHTML = rawIndexHTML.replace('<!--__PROXY_CONFIG__-->', script);
 }
 
 function serveStatic(url, clientRes) {
@@ -220,18 +239,95 @@ const server = http.createServer((clientReq, clientRes) => {
   });
 });
 
+// ── Port scanner ──
+function tryListen(srv, port, maxAttempts) {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+    function onError(err) {
+      if (err.code === 'EADDRINUSE' && attempt < maxAttempts) {
+        attempt++;
+        srv.listen(port + attempt);
+      } else {
+        srv.removeListener('listening', onListening);
+        reject(err);
+      }
+    }
+    function onListening() {
+      srv.removeListener('error', onError);
+      resolve(srv.address().port);
+    }
+    srv.on('error', onError);
+    srv.once('listening', onListening);
+    srv.listen(port);
+  });
+}
+
+// ── Spawn Claude Code with proxy env ──
+function spawnClaude(port, args) {
+  const { spawn } = require('child_process');
+  const child = spawn('claude', args, {
+    stdio: 'inherit',
+    env: { ...process.env, ANTHROPIC_BASE_URL: `http://localhost:${port}` },
+  });
+  child.on('error', (err) => {
+    if (err.code === 'ENOENT') {
+      console.error('\x1b[31mError: "claude" command not found. Install Claude Code first:\x1b[0m');
+      console.error('\x1b[31m  npm install -g @anthropic-ai/claude-code\x1b[0m');
+    } else {
+      console.error(`\x1b[31mFailed to start claude: ${err.message}\x1b[0m`);
+    }
+    process.exit(1);
+  });
+  child.on('exit', (code, signal) => {
+    server.close();
+    process.exit(code ?? (signal === 'SIGINT' ? 130 : 1));
+  });
+  // SIGINT is already sent to claude by the terminal (same process group).
+  // Just prevent Node's default exit so we wait for claude's exit event.
+  process.on('SIGINT', () => {});
+  process.on('SIGTERM', () => child.kill('SIGTERM'));
+}
+
 // ── Startup ──
 config.storage.init().then(() => fetchPricing()).then(async () => {
   await restoreFromLogs();
-  warmUpCosts(); // Start JSONL parsing in background (child process)
-  server.listen(config.PORT, () => {
+  warmUpCosts();
+
+  const maxAttempts = claudeMode ? 10 : 0;
+  const actualPort = await tryListen(server, config.PORT, maxAttempts);
+  rebuildIndexHTML(actualPort);
+
+  // Banner (use _origLog so it prints even in claude mode)
+  if (claudeMode) {
+    _origLog(`\x1b[90mccxray → http://localhost:${actualPort}\x1b[0m`);
+  } else {
     console.log();
-    console.log(`\x1b[35m🔌 Claude API Proxy listening on http://localhost:${config.PORT}\x1b[0m`);
-    console.log(`\x1b[90m   Dashboard → http://localhost:${config.PORT}/`);
+    console.log(`\x1b[35m🔌 Claude API Proxy listening on http://localhost:${actualPort}\x1b[0m`);
+    console.log(`\x1b[90m   Dashboard → http://localhost:${actualPort}/`);
     console.log(`   Forwarding to ${config.ANTHROPIC_HOST}`);
     console.log(`   Logs → ${config.LOGS_DIR}`);
     console.log();
-    console.log(`   Usage: ANTHROPIC_BASE_URL=http://localhost:${config.PORT} claude\x1b[0m`);
-    console.log();
-  });
+    console.log(`   Usage: ANTHROPIC_BASE_URL=http://localhost:${actualPort} claude\x1b[0m`);
+    console.log('\x1b[0m');
+  }
+
+  // Auto-open dashboard in browser (opt-out: --no-browser, BROWSER=none, CI, SSH)
+  const noOpen = process.argv.includes('--no-browser')
+    || process.env.BROWSER === 'none'
+    || process.env.CI
+    || process.env.SSH_TTY;
+  if (!noOpen) {
+    const { exec } = require('child_process');
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    exec(`${cmd} http://localhost:${actualPort}`);
+  }
+
+  if (claudeMode) spawnClaude(actualPort, claudeArgs);
+}).catch(err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\x1b[31mError: port ${config.PORT} is already in use\x1b[0m`);
+  } else {
+    console.error(`\x1b[31mStartup failed: ${err.message}\x1b[0m`);
+  }
+  process.exit(1);
 });

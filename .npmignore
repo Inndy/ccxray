@@ -1,0 +1,10 @@
+docs/
+test/
+CLAUDE.md
+.github/
+.dockerignore
+Dockerfile
+.DS_Store
+*.log
+pricing-cache.json
+logs/
