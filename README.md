@@ -6,7 +6,7 @@ X-ray vision for AI agent sessions. A zero-config HTTP proxy that records every 
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-![ccxray dashboard](docs/dashboard.png)
+![ccxray dashboard](https://raw.githubusercontent.com/lis186/ccxray/main/docs/dashboard.png)
 
 ## Why
 
@@ -42,19 +42,19 @@ ANTHROPIC_BASE_URL=http://localhost:5577 claude   # Manual setup (existing sessi
 
 Watch your agent think in real-time. Every turn broken down into thinking blocks (with duration), tool calls with inline previews, and assistant responses.
 
-![Timeline view](docs/timeline.png)
+![Timeline view](https://raw.githubusercontent.com/lis186/ccxray/main/docs/timeline.png)
 
 ### Usage & Cost
 
 Track your real spending. Session heatmap, burn rate, ROI calculator — know exactly where your tokens go.
 
-![Usage analytics](docs/usage.png)
+![Usage analytics](https://raw.githubusercontent.com/lis186/ccxray/main/docs/usage.png)
 
 ### System Prompt Tracking
 
 Automatic version detection with diff viewer. See exactly what changed between Claude Code updates — never miss a prompt change again.
 
-![System prompt tracking](docs/system-prompt.png)
+![System prompt tracking](https://raw.githubusercontent.com/lis186/ccxray/main/docs/system-prompt.png)
 
 ### More
 
@@ -110,11 +110,10 @@ docker run -p 5577:5577 ccxray
 ## Requirements
 
 - Node.js 18+
-- No other dependencies needed (uses native `http`/`https`)
 
 ## Also by the author
 
-- [SourceAtlas](http://sourceatlas.io/) — Your map to any codebase
+- [SourceAtlas](https://sourceatlas.io/) — Your map to any codebase
 - [AskRoundtable](https://github.com/AskRoundtable/expert-skills) — Make your AI think like Munger, Feynman, or Paul Graham
 - Follow [@lis186](https://x.com/lis186) on X for updates
 
