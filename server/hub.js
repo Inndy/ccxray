@@ -331,9 +331,13 @@ function startHubMonitor(hubPid, hubPort, onRecovery) {
     try {
       forkHub(hubPort);
       const lock = await waitForHubReady();
+      if (lock.port !== hubPort) {
+        console.error(`\x1b[31mHub recovered on port ${lock.port} but Claude is using port ${hubPort}. Cannot recover.\x1b[0m`);
+        try { process.kill(lock.pid, 'SIGTERM'); } catch {}
+        return;
+      }
       console.error(`\x1b[32mHub recovered (pid ${lock.pid}, port ${lock.port})\x1b[0m`);
       if (onRecovery) onRecovery(lock);
-      // Start monitoring the new hub
       startHubMonitor(lock.pid, lock.port, onRecovery);
     } catch (err) {
       console.error(`\x1b[31mHub recovery failed: ${err.message}\x1b[0m`);

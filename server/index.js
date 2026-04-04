@@ -87,11 +87,12 @@ function serveStatic(url, clientRes) {
 // ── Server ──────────────────────────────────────────────────────────
 const server = http.createServer((clientReq, clientRes) => {
 
+  // ── Hub API (health, register, unregister, status) ──
+  // Placed before auth: these are local IPC endpoints, not user-facing
+  if (hub.handleHubRoutes(clientReq, clientRes)) return;
+
   // ── Auth check (enabled via AUTH_TOKEN env var) ──
   if (!authMiddleware(clientReq, clientRes)) return;
-
-  // ── Hub API (health, register, unregister, status) ──
-  if (hub.handleHubRoutes(clientReq, clientRes)) return;
 
   // ── Static files (HTML, CSS, JS) ──
   if (serveStatic(clientReq.url, clientRes)) return;
@@ -355,7 +356,11 @@ async function startClientMode(lock) {
   _origLog(`\x1b[90mccxray → http://localhost:${lock.port} (hub)\x1b[0m`);
 
   try {
-    await hub.registerClient(lock.port, process.pid, process.cwd());
+    const registered = await hub.registerClient(lock.port, process.pid, process.cwd());
+    if (!registered) {
+      console.error('\x1b[31mHub rejected client registration.\x1b[0m');
+      process.exit(1);
+    }
   } catch (err) {
     console.error(`\x1b[31mFailed to register with hub: ${err.message}\x1b[0m`);
     process.exit(1);
@@ -398,7 +403,9 @@ async function startServer() {
   await restoreFromLogs();
   warmUpCosts();
 
-  const maxAttempts = (claudeMode || hubMode) ? 10 : 0;
+  // Hub mode: no port retry — EADDRINUSE means another hub won the race.
+  // Claude mode (with --port, standalone): retry up to 10 ports.
+  const maxAttempts = (claudeMode && !hubMode) ? 10 : 0;
   const actualPort = await tryListen(server, config.PORT, maxAttempts);
   rebuildIndexHTML(actualPort);
 
