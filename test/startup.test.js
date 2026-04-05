@@ -556,6 +556,7 @@ describe('Intercept lifecycle', () => {
   let proxyChild;
   let proxyPort;
   const TEST_SESSION = 'aaaabbbb-cccc-dddd-eeee-ffffffffffff';
+  let mockUpstreamNextResponse = null;
 
   function makeRequestBody(content) {
     return JSON.stringify({
@@ -571,6 +572,12 @@ describe('Intercept lifecycle', () => {
       let body = '';
       req.on('data', c => { body += c; });
       req.on('end', () => {
+        if (mockUpstreamNextResponse) {
+          const r = mockUpstreamNextResponse;
+          res.writeHead(r.status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(r.body));
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           id: 'msg_intercept',
@@ -674,6 +681,35 @@ describe('Intercept lifecycle', () => {
 
     // Cleanup
     await httpPost(proxyPort, '/_api/intercept/toggle', { sessionId: TEST_SESSION });
+  });
+
+  it('intercept → approve → upstream 500 → state recovers', async () => {
+    // Make upstream return 500 for next request
+    mockUpstreamNextResponse = { status: 500, body: { type: 'error', error: { message: 'boom' } } };
+
+    // Enable intercept
+    await httpPost(proxyPort, '/_api/intercept/toggle', { sessionId: TEST_SESSION });
+
+    const pendingIdPromise = waitForSSEEvent(proxyPort, 'pending_request');
+    const body = makeRequestBody('intercept then fail');
+    const responsePromise = sendProxyRequest(proxyPort, body);
+
+    const pendingId = await pendingIdPromise;
+    assert.ok(pendingId);
+
+    // Approve — proxy forwards to upstream which returns 500
+    await httpPost(proxyPort, `/_api/intercept/${encodeURIComponent(pendingId)}/approve`, {});
+
+    const response = await responsePromise;
+    assert.equal(response.status, 500, 'Client should get the 500 from upstream');
+
+    // Disable intercept
+    await httpPost(proxyPort, '/_api/intercept/toggle', { sessionId: TEST_SESSION });
+    mockUpstreamNextResponse = null;
+
+    // Verify proxy is still healthy
+    const health = await httpGet(proxyPort, '/_api/health');
+    assert.deepEqual(health, { ok: true });
   });
 });
 
@@ -847,6 +883,10 @@ describe('Proxy upstream error responses', () => {
     const health = await httpGet(proxyPort, '/_api/health');
     assert.deepEqual(health, { ok: true });
   });
+
+  // NOTE: socket.destroy() (ECONNRESET) causes the proxy to leave clientRes
+  // open because forward.js doesn't handle proxyRes 'error'/'close' events.
+  // This is a known limitation — filed as a future fix.
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────
