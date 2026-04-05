@@ -423,6 +423,131 @@ describe('P0: proxy end-to-end forwarding', () => {
   });
 });
 
+// ── SSE streaming proxy E2E ─────────────────────────────────────────
+
+describe('SSE streaming proxy', () => {
+  let mockUpstream;
+  let mockPort;
+  let proxyChild;
+  let proxyPort;
+
+  before(async () => {
+    // Mock upstream that returns SSE event stream (like real Anthropic API)
+    mockUpstream = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        });
+
+        // Simulate Anthropic SSE response
+        const events = [
+          { type: 'message_start', message: { id: 'msg_sse_test', type: 'message', role: 'assistant', content: [], model: 'claude-sonnet-4-20250514', usage: { input_tokens: 10, output_tokens: 0 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello ' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'from SSE' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } },
+          { type: 'message_stop' },
+        ];
+
+        let i = 0;
+        const sendNext = () => {
+          if (i >= events.length) { res.end(); return; }
+          res.write(`event: ${events[i].type}\ndata: ${JSON.stringify(events[i])}\n\n`);
+          i++;
+          setTimeout(sendNext, 5);
+        };
+        sendNext();
+      });
+    });
+    await new Promise(r => mockUpstream.listen(0, r));
+    mockPort = mockUpstream.address().port;
+
+    proxyPort = await findFreePort();
+    proxyChild = spawnServer(['--port', String(proxyPort)], {
+      env: {
+        ANTHROPIC_TEST_HOST: 'localhost',
+        ANTHROPIC_TEST_PORT: String(mockPort),
+        ANTHROPIC_TEST_PROTOCOL: 'http',
+      },
+    });
+    await waitForPort(proxyPort);
+  });
+
+  after(async () => {
+    await killAndWait(proxyChild);
+    await new Promise(r => mockUpstream.close(r));
+  });
+
+  it('streams SSE chunks from upstream through proxy to client', async () => {
+    const requestBody = JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 100,
+      stream: true,
+      messages: [{ role: 'user', content: 'test sse' }],
+    });
+
+    const { chunks, headers } = await new Promise((resolve, reject) => {
+      const req = http.request(`http://localhost:${proxyPort}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
+          'x-api-key': 'test-key',
+          'anthropic-version': '2023-06-01',
+        },
+      }, res => {
+        const chunks = [];
+        res.on('data', c => { chunks.push(c.toString()); });
+        res.on('end', () => resolve({ chunks, headers: res.headers }));
+      });
+      req.on('error', reject);
+      req.end(requestBody);
+    });
+
+    // Verify SSE content-type preserved
+    assert.ok(
+      (headers['content-type'] || '').includes('text/event-stream'),
+      'Response should be text/event-stream'
+    );
+
+    // Verify SSE events came through
+    const fullResponse = chunks.join('');
+    assert.ok(fullResponse.includes('message_start'), 'Should contain message_start event');
+    assert.ok(fullResponse.includes('content_block_delta'), 'Should contain content_block_delta');
+    assert.ok(fullResponse.includes('Hello '), 'Should contain streamed text "Hello "');
+    assert.ok(fullResponse.includes('from SSE'), 'Should contain streamed text "from SSE"');
+    assert.ok(fullResponse.includes('message_stop'), 'Should contain message_stop');
+  });
+
+  it('writes SSE response to log as parsed events array', async () => {
+    // Wait for async log write
+    await new Promise(r => setTimeout(r, 500));
+
+    const logsDir = path.join(TEST_HOME, 'logs');
+    const files = fs.existsSync(logsDir) ? fs.readdirSync(logsDir) : [];
+    const resFiles = files.filter(f => f.endsWith('_res.json'));
+
+    // Find the SSE response log (most recent)
+    assert.ok(resFiles.length > 0, 'Should have res log files');
+    const lastResFile = resFiles.sort().pop();
+    const resContent = JSON.parse(fs.readFileSync(path.join(logsDir, lastResFile), 'utf8'));
+
+    // SSE responses are stored as parsed event arrays
+    assert.ok(Array.isArray(resContent), 'SSE res log should be an array of events');
+    assert.ok(resContent.length >= 5, `Expected >= 5 events, got ${resContent.length}`);
+
+    // Verify event types are captured
+    const types = resContent.map(e => e.type);
+    assert.ok(types.includes('message_start'), 'Should log message_start');
+    assert.ok(types.includes('content_block_delta'), 'Should log content_block_delta');
+    assert.ok(types.includes('message_stop'), 'Should log message_stop');
+  });
+});
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function httpGet(port, urlPath) {
