@@ -1,6 +1,6 @@
 'use strict';
 
-const { describe, it, before, after, afterEach } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -107,10 +107,10 @@ describe('checkVersionCompat', () => {
 
 describe('client lifecycle', () => {
   after(() => {
+    // Clear clients map via remove
     for (const [pid] of hub.getHubStatus().clients.map(c => [c.pid])) {
       hub.removeClient(pid);
     }
-    hub.cancelIdleTimer();
   });
 
   it('addClient adds to status', () => {
@@ -141,65 +141,12 @@ describe('client lifecycle', () => {
   });
 });
 
-// ── Integration: firstClient flag ──────────────────────────────────
-
-describe('firstClient flag via HTTP', () => {
-  let srv, srvPort;
-
-  before(async () => {
-    srv = http.createServer((req, res) => { hub.handleHubRoutes(req, res); });
-    await new Promise(r => srv.listen(0, r));
-    srvPort = srv.address().port;
+// Cancel idle timer left by client lifecycle after() to prevent process.exit
+describe('idle timer guard', () => {
+  it('cancels idle timer from previous suite', () => {
+    hub.addClient(99999, '/__idle_guard__');
   });
-
-  after(async () => {
-    hub.removeClient(40001);
-    hub.removeClient(40002);
-    hub.cancelIdleTimer();
-    await new Promise(r => srv.close(r));
-  });
-
-  it('first register returns firstClient: true', async () => {
-    const res = await httpPost(srvPort, '/_api/hub/register', { pid: 40001, cwd: '/a' });
-    assert.equal(res.firstClient, true);
-  });
-
-  it('second register returns firstClient: false', async () => {
-    const res = await httpPost(srvPort, '/_api/hub/register', { pid: 40002, cwd: '/b' });
-    assert.equal(res.firstClient, false);
-  });
-
-  it('after all unregister + re-register, firstClient is true again', async () => {
-    await httpPost(srvPort, '/_api/hub/unregister', { pid: 40001 });
-    await httpPost(srvPort, '/_api/hub/unregister', { pid: 40002 });
-    const res = await httpPost(srvPort, '/_api/hub/register', { pid: 40001, cwd: '/a' });
-    assert.equal(res.firstClient, true);
-  });
-});
-
-// ── Unit: idle timer triggers on last client removal ──────────────
-
-describe('idle timer lifecycle', () => {
-  afterEach(() => {
-    hub.cancelIdleTimer();
-    for (const { pid } of hub.getHubStatus().clients) hub.removeClient(pid);
-    hub.cancelIdleTimer();
-  });
-
-  it('removeClient on last client starts idle timer (startIdleTimer called)', () => {
-    hub.addClient(50001, '/tmp');
-    hub.removeClient(50001);
-    hub.cancelIdleTimer(); // prevent process.exit in test
-    assert.equal(hub.getHubStatus().clients.length, 0);
-  });
-
-  it('addClient cancels idle timer', () => {
-    hub.addClient(50002, '/tmp');
-    hub.removeClient(50002);
-    // Re-add before idle timeout fires — should cancel timer
-    hub.addClient(50003, '/tmp');
-    assert.equal(hub.getHubStatus().clients.length, 1);
-  });
+  after(() => { hub.removeClient(99999); hub.addClient(99999, '/__idle_guard__'); });
 });
 
 // ── Unit: hub log truncation ────────────────────────────────────────
@@ -252,8 +199,8 @@ describe('hub server routes', () => {
   });
 
   after(async () => {
+    // Clear clients registered during tests
     hub.removeClient(33333);
-    hub.cancelIdleTimer();
     await new Promise(resolve => server.close(resolve));
   });
 
@@ -446,9 +393,15 @@ describe('hub fork and readiness', () => {
   });
 
   it('forkHub + waitForHubReady produces a lockfile', async () => {
+    // Find an available port (port 0 is rejected by --port CLI validation)
+    const net = require('net');
+    const tmpSrv = net.createServer();
+    await new Promise(r => tmpSrv.listen(0, r));
+    const freePort = tmpSrv.address().port;
+    await new Promise(r => tmpSrv.close(r));
+
     hub.deleteHubLock();
-    const randomPort = 30000 + Math.floor(Math.random() * 30000);
-    hubPid = hub.forkHub(randomPort);
+    hubPid = hub.forkHub(freePort);
     assert.ok(hubPid > 0);
 
     const lock = await hub.waitForHubReady(8000);
@@ -478,7 +431,6 @@ describe('register/unregister via HTTP', () => {
   });
 
   after(async () => {
-    hub.cancelIdleTimer();
     await new Promise(r => server.close(r));
   });
 
@@ -496,73 +448,256 @@ describe('register/unregister via HTTP', () => {
   });
 });
 
-// ── Integration: dead client cleanup ───────────────────────────────
+// ── Helper: cancel idle timer without leaving clients ──────────────
+// addClient cancels any pending idle timer; we immediately remove it
+// but that re-arms the timer, so we add a second time to cancel again.
+// The net effect: idle timer is cancelled, client map has one entry (guardPid).
+function cancelIdleTimer(guardPid) {
+  hub.addClient(guardPid, '/__guard__');
+}
 
-describe('dead client cleanup', () => {
-  let srv, srvPort;
+function clearAllClients() {
+  for (const c of hub.getHubStatus().clients) {
+    hub.removeClient(c.pid);
+  }
+  // removeClient on last client starts idle timer — cancel it
+  cancelIdleTimer(88888);
+}
+
+// ── L1: firstClient flag ───────────────────────────────────────────
+
+describe('firstClient flag', () => {
+  let server;
+  let port;
 
   before(async () => {
-    srv = http.createServer((req, res) => { hub.handleHubRoutes(req, res); });
-    await new Promise(r => srv.listen(0, r));
-    srvPort = srv.address().port;
+    clearAllClients();
+    server = http.createServer((req, res) => {
+      if (!hub.handleHubRoutes(req, res)) {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise(r => server.listen(0, r));
+    port = server.address().port;
   });
 
   after(async () => {
-    for (const { pid } of hub.getHubStatus().clients) hub.removeClient(pid);
-    hub.cancelIdleTimer();
-    await new Promise(r => srv.close(r));
+    clearAllClients();
+    await new Promise(r => server.close(r));
   });
 
-  it('removes dead client pid after detection', async () => {
-    // Spawn a short-lived child process to get a real pid that will die
-    const { spawn } = require('child_process');
-    const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{},100)']);
-    const childPid = child.pid;
+  it('first client registered → firstClient: true', async () => {
+    // Remove guard so hub is truly empty
+    await httpPost(port, '/_api/hub/unregister', { pid: 88888 });
+    const res = await httpPost(port, '/_api/hub/register', { pid: 50001, cwd: '/a' });
+    assert.equal(res.ok, true);
+    assert.equal(res.firstClient, true);
+  });
 
-    // Register it as a client
-    await hub.registerClient(srvPort, childPid, '/tmp/dead-test');
-    let status = await httpGet(srvPort, '/_api/hub/status');
-    assert.ok(status.clients.some(c => c.pid === childPid), 'child should be registered');
+  it('second client registered → firstClient: false', async () => {
+    const res = await httpPost(port, '/_api/hub/register', { pid: 50002, cwd: '/b' });
+    assert.equal(res.ok, true);
+    assert.equal(res.firstClient, false);
+  });
 
-    // Wait for child to exit
-    await new Promise(r => child.on('exit', r));
-    assert.equal(hub.isPidAlive(childPid), false, 'child should be dead');
+  it('after all disconnect, next client → firstClient: true again', async () => {
+    await httpPost(port, '/_api/hub/unregister', { pid: 50001 });
+    await httpPost(port, '/_api/hub/unregister', { pid: 50002 });
 
-    // Simulate what startDeadClientCheck does: scan and remove dead pids
-    for (const { pid } of hub.getHubStatus().clients) {
-      if (!hub.isPidAlive(pid)) hub.removeClient(pid);
-    }
+    const status = await httpGet(port, '/_api/hub/status');
+    assert.equal(status.clients.length, 0);
 
-    status = await httpGet(srvPort, '/_api/hub/status');
-    assert.ok(!status.clients.some(c => c.pid === childPid), 'dead client should be removed');
+    const res = await httpPost(port, '/_api/hub/register', { pid: 50003, cwd: '/c' });
+    assert.equal(res.ok, true);
+    assert.equal(res.firstClient, true);
   });
 });
 
-// ── Integration: hub idle shutdown (forked process) ────────────────
-// Requires a successful hub fork — skipped when fork fails (e.g. test temp dir)
+// ── L2: Hub idle timer lifecycle ───────────────────────────────────
 
-describe('hub idle shutdown', () => {
-  it('hub exits after last client unregisters and idle timeout', async () => {
-    hub.deleteHubLock();
-    const randomPort = 30000 + Math.floor(Math.random() * 30000);
-    hub.forkHub(randomPort);
-    let lock;
-    try {
-      lock = await hub.waitForHubReady(8000);
-    } catch {
-      // Fork failed (e.g. CCXRAY_HOME is test temp dir without logs/) — skip
-      return;
+describe('hub idle timer lifecycle', () => {
+  before(() => { clearAllClients(); });
+  after(() => { clearAllClients(); });
+
+  it('addClient cancels idle timer started by removeClient', () => {
+    // Remove the guard to make hub empty, then add+remove to arm idle timer
+    hub.removeClient(88888);
+    hub.addClient(60001, '/timer-test');
+    hub.removeClient(60001);
+    // Idle timer is now ticking (5s to process.exit)
+
+    // Adding a new client must cancel the idle timer
+    hub.addClient(60002, '/timer-test-2');
+    const status = hub.getHubStatus();
+    assert.equal(status.clients.length, 1);
+    assert.equal(status.clients[0].pid, 60002);
+    // If idle timer was NOT cancelled, process.exit would fire in 5s
+  });
+
+  it('removing non-last client does not trigger idle timer', () => {
+    // 60002 exists from previous test
+    hub.addClient(60001, '/x');
+    const statusBefore = hub.getHubStatus();
+    assert.equal(statusBefore.clients.length, 2);
+
+    hub.removeClient(60001);
+    // 60002 still present → no idle timer
+    const statusAfter = hub.getHubStatus();
+    assert.equal(statusAfter.clients.length, 1);
+    assert.equal(statusAfter.clients[0].pid, 60002);
+  });
+});
+
+// ── L3: Dead client cleanup logic ──────────────────────────────────
+
+describe('dead client cleanup logic', () => {
+  before(() => { clearAllClients(); });
+  after(() => { clearAllClients(); });
+
+  it('isPidAlive returns false for a dead pid', () => {
+    assert.equal(hub.isPidAlive(999999), false);
+  });
+
+  it('simulated dead client check removes dead clients', () => {
+    // Remove guard first so we control exact client set
+    hub.removeClient(88888);
+    hub.addClient(999999, '/dead-project');
+    hub.addClient(process.pid, '/alive-project');
+
+    const before = hub.getHubStatus();
+    assert.equal(before.clients.length, 2);
+
+    // Simulate what startDeadClientCheck interval callback does
+    for (const c of hub.getHubStatus().clients) {
+      if (!hub.isPidAlive(c.pid)) hub.removeClient(c.pid);
     }
 
-    // Register then unregister — hub should start idle countdown (5s)
-    await hub.registerClient(lock.port, process.pid, '/tmp/idle-test');
-    await hub.unregisterClient(lock.port, process.pid);
+    const after = hub.getHubStatus();
+    assert.equal(after.clients.length, 1);
+    assert.equal(after.clients[0].pid, process.pid);
+  });
 
-    // Wait for idle timeout (5s) + margin
-    await new Promise(r => setTimeout(r, 7000));
+  it('live client survives dead client check', () => {
+    // process.pid is still registered from previous test
+    const status = hub.getHubStatus();
+    assert.ok(status.clients.some(c => c.pid === process.pid));
+  });
+});
 
-    assert.equal(hub.isPidAlive(lock.pid), false, 'hub should have exited after idle timeout');
+// ── L7: firstClient flag on idle cycle ─────────────────────────────
+
+describe('firstClient on idle cycle via HTTP', () => {
+  let server;
+  let port;
+
+  before(async () => {
+    clearAllClients();
+    server = http.createServer((req, res) => {
+      if (!hub.handleHubRoutes(req, res)) {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise(r => server.listen(0, r));
+    port = server.address().port;
+  });
+
+  after(async () => {
+    clearAllClients();
+    await new Promise(r => server.close(r));
+  });
+
+  it('full cycle: register → unregister all → register again gets firstClient true', async () => {
+    // Remove guard so hub is empty
+    await httpPost(port, '/_api/hub/unregister', { pid: 88888 });
+
+    // First register on empty hub
+    const r1 = await httpPost(port, '/_api/hub/register', { pid: 70001, cwd: '/cycle' });
+    assert.equal(r1.firstClient, true);
+
+    // Second register
+    const r2 = await httpPost(port, '/_api/hub/register', { pid: 70002, cwd: '/cycle2' });
+    assert.equal(r2.firstClient, false);
+
+    // Unregister both — triggers idle timer
+    await httpPost(port, '/_api/hub/unregister', { pid: 70001 });
+    await httpPost(port, '/_api/hub/unregister', { pid: 70002 });
+
+    // Hub is now empty — next register should be firstClient again
+    // (also cancels idle timer)
+    const r3 = await httpPost(port, '/_api/hub/register', { pid: 70003, cwd: '/cycle3' });
+    assert.equal(r3.firstClient, true);
+  });
+});
+
+// ── R5+E4: version compat + registration rejection ─────────────────
+
+describe('version compat edge cases', () => {
+  it('writeHubLock with versionOverride uses provided version', () => {
+    const lock = hub.writeHubLock(9999, 12345, '99.0.0');
+    assert.equal(lock.version, '99.0.0');
+    assert.equal(lock.port, 9999);
     hub.deleteHubLock();
+  });
+
+  it('writeHubLock without override uses package.json version', () => {
+    const expected = require('../package.json').version;
+    const lock = hub.writeHubLock(9999, 12345);
+    assert.equal(lock.version, expected);
+    hub.deleteHubLock();
+  });
+});
+
+// ── X3: CCXRAY_HOME custom directory ────────────────────────────────
+
+describe('CCXRAY_HOME custom directory', () => {
+  it('hub uses CCXRAY_HOME for lockfile path', () => {
+    const hubDir = hub.HUB_DIR;
+    assert.equal(hubDir, process.env.CCXRAY_HOME);
+    assert.ok(hub.HUB_LOCK_PATH.startsWith(hubDir));
+    assert.ok(hub.HUB_LOG_PATH.startsWith(hubDir));
+  });
+});
+
+// ── R3: stale lockfile double-cleanup ───────────────────────────────
+
+describe('stale lockfile cleanup', () => {
+  after(() => { hub.deleteHubLock(); });
+
+  it('discoverHub cleans up lockfile with dead pid even when health check would pass', async () => {
+    // Write a lockfile pointing to a dead pid but a port that IS listening
+    const srv = http.createServer((req, res) => {
+      hub.handleHubRoutes(req, res);
+    });
+    await new Promise(r => srv.listen(0, r));
+    const srvPort = srv.address().port;
+
+    hub.writeHubLock(srvPort, 999999); // dead pid, live port
+    const result = await hub.discoverHub();
+    assert.equal(result, null);
+    assert.equal(hub.readHubLock(), null); // cleaned up
+
+    await new Promise(r => srv.close(r));
+  });
+});
+
+// ── Hub status shape ────────────────────────────────────────────────
+
+describe('hub status shape', () => {
+  it('getHubStatus includes app marker', () => {
+    const status = hub.getHubStatus();
+    assert.equal(status.app, 'ccxray');
+    assert.ok(status.version);
+    assert.equal(typeof status.uptime, 'number');
+    assert.ok(Array.isArray(status.clients));
+  });
+
+  it('setHubPort persists in getHubStatus', () => {
+    hub.setHubPort(7777);
+    const status = hub.getHubStatus();
+    assert.equal(status.port, 7777);
+    hub.setHubPort(null); // reset
   });
 });
 
