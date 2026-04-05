@@ -263,6 +263,10 @@ function removeClient(pid) {
   if (clients.size === 0) startIdleTimer();
 }
 
+function cancelIdleTimer() {
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+}
+
 function startIdleTimer() {
   if (idleTimer) return;
   idleTimer = setTimeout(() => {
@@ -403,6 +407,7 @@ module.exports = {
   truncateHubLog,
   addClient,
   removeClient,
+  cancelIdleTimer,
   startIdleTimer,
   shutdownHub,
   startDeadClientCheck,

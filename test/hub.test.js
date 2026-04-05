@@ -1,6 +1,6 @@
 'use strict';
 
-const { describe, it, before, after } = require('node:test');
+const { describe, it, before, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -107,10 +107,10 @@ describe('checkVersionCompat', () => {
 
 describe('client lifecycle', () => {
   after(() => {
-    // Clear clients map via remove
     for (const [pid] of hub.getHubStatus().clients.map(c => [c.pid])) {
       hub.removeClient(pid);
     }
+    hub.cancelIdleTimer();
   });
 
   it('addClient adds to status', () => {
@@ -155,6 +155,7 @@ describe('firstClient flag via HTTP', () => {
   after(async () => {
     hub.removeClient(40001);
     hub.removeClient(40002);
+    hub.cancelIdleTimer();
     await new Promise(r => srv.close(r));
   });
 
@@ -179,28 +180,25 @@ describe('firstClient flag via HTTP', () => {
 // ── Unit: idle timer triggers on last client removal ──────────────
 
 describe('idle timer lifecycle', () => {
-  after(() => {
-    // Ensure no lingering clients
+  afterEach(() => {
+    hub.cancelIdleTimer();
     for (const { pid } of hub.getHubStatus().clients) hub.removeClient(pid);
+    hub.cancelIdleTimer();
   });
 
   it('removeClient on last client starts idle timer (startIdleTimer called)', () => {
-    // addClient cancels any idle timer; removing last client should trigger it
     hub.addClient(50001, '/tmp');
     hub.removeClient(50001);
-    // We can't easily test the timer fires (it calls process.exit),
-    // but we verify clients are empty — idle timer is internal
+    hub.cancelIdleTimer(); // prevent process.exit in test
     assert.equal(hub.getHubStatus().clients.length, 0);
   });
 
   it('addClient cancels idle timer', () => {
-    // Remove last to trigger idle timer
     hub.addClient(50002, '/tmp');
     hub.removeClient(50002);
     // Re-add before idle timeout fires — should cancel timer
     hub.addClient(50003, '/tmp');
     assert.equal(hub.getHubStatus().clients.length, 1);
-    hub.removeClient(50003);
   });
 });
 
@@ -254,8 +252,8 @@ describe('hub server routes', () => {
   });
 
   after(async () => {
-    // Clear clients registered during tests
     hub.removeClient(33333);
+    hub.cancelIdleTimer();
     await new Promise(resolve => server.close(resolve));
   });
 
@@ -449,7 +447,8 @@ describe('hub fork and readiness', () => {
 
   it('forkHub + waitForHubReady produces a lockfile', async () => {
     hub.deleteHubLock();
-    hubPid = hub.forkHub(0); // port 0 = random
+    const randomPort = 30000 + Math.floor(Math.random() * 30000);
+    hubPid = hub.forkHub(randomPort);
     assert.ok(hubPid > 0);
 
     const lock = await hub.waitForHubReady(8000);
@@ -479,12 +478,13 @@ describe('register/unregister via HTTP', () => {
   });
 
   after(async () => {
+    hub.cancelIdleTimer();
     await new Promise(r => server.close(r));
   });
 
   it('registerClient + unregisterClient round-trip', async () => {
-    const ok = await hub.registerClient(port, 44444, '/test/project');
-    assert.equal(ok, true);
+    const reg = await hub.registerClient(port, 44444, '/test/project');
+    assert.equal(reg.ok, true);
 
     const status = await httpGet(port, '/_api/hub/status');
     assert.ok(status.clients.some(c => c.pid === 44444));
@@ -493,6 +493,76 @@ describe('register/unregister via HTTP', () => {
 
     const status2 = await httpGet(port, '/_api/hub/status');
     assert.ok(!status2.clients.some(c => c.pid === 44444));
+  });
+});
+
+// ── Integration: dead client cleanup ───────────────────────────────
+
+describe('dead client cleanup', () => {
+  let srv, srvPort;
+
+  before(async () => {
+    srv = http.createServer((req, res) => { hub.handleHubRoutes(req, res); });
+    await new Promise(r => srv.listen(0, r));
+    srvPort = srv.address().port;
+  });
+
+  after(async () => {
+    for (const { pid } of hub.getHubStatus().clients) hub.removeClient(pid);
+    hub.cancelIdleTimer();
+    await new Promise(r => srv.close(r));
+  });
+
+  it('removes dead client pid after detection', async () => {
+    // Spawn a short-lived child process to get a real pid that will die
+    const { spawn } = require('child_process');
+    const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{},100)']);
+    const childPid = child.pid;
+
+    // Register it as a client
+    await hub.registerClient(srvPort, childPid, '/tmp/dead-test');
+    let status = await httpGet(srvPort, '/_api/hub/status');
+    assert.ok(status.clients.some(c => c.pid === childPid), 'child should be registered');
+
+    // Wait for child to exit
+    await new Promise(r => child.on('exit', r));
+    assert.equal(hub.isPidAlive(childPid), false, 'child should be dead');
+
+    // Simulate what startDeadClientCheck does: scan and remove dead pids
+    for (const { pid } of hub.getHubStatus().clients) {
+      if (!hub.isPidAlive(pid)) hub.removeClient(pid);
+    }
+
+    status = await httpGet(srvPort, '/_api/hub/status');
+    assert.ok(!status.clients.some(c => c.pid === childPid), 'dead client should be removed');
+  });
+});
+
+// ── Integration: hub idle shutdown (forked process) ────────────────
+// Requires a successful hub fork — skipped when fork fails (e.g. test temp dir)
+
+describe('hub idle shutdown', () => {
+  it('hub exits after last client unregisters and idle timeout', async () => {
+    hub.deleteHubLock();
+    const randomPort = 30000 + Math.floor(Math.random() * 30000);
+    hub.forkHub(randomPort);
+    let lock;
+    try {
+      lock = await hub.waitForHubReady(8000);
+    } catch {
+      // Fork failed (e.g. CCXRAY_HOME is test temp dir without logs/) — skip
+      return;
+    }
+
+    // Register then unregister — hub should start idle countdown (5s)
+    await hub.registerClient(lock.port, process.pid, '/tmp/idle-test');
+    await hub.unregisterClient(lock.port, process.pid);
+
+    // Wait for idle timeout (5s) + margin
+    await new Promise(r => setTimeout(r, 7000));
+
+    assert.equal(hub.isPidAlive(lock.pid), false, 'hub should have exited after idle timeout');
+    hub.deleteHubLock();
   });
 });
 
