@@ -779,6 +779,8 @@ describe('Proxy upstream error responses', () => {
             }
             if (destroyAfter) {
               setTimeout(() => res.end(), 50);
+            } else if (nextResponse.socketDestroy) {
+              setTimeout(() => res.socket.destroy(), 50);
             } else {
               res.end();
             }
@@ -884,9 +886,34 @@ describe('Proxy upstream error responses', () => {
     assert.deepEqual(health, { ok: true });
   });
 
-  // NOTE: socket.destroy() (ECONNRESET) causes the proxy to leave clientRes
-  // open because forward.js doesn't handle proxyRes 'error'/'close' events.
-  // This is a known limitation — filed as a future fix.
+  it('E3b: upstream socket destroyed mid-SSE → proxy handles ECONNRESET', async () => {
+    nextResponse = {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+      sse: [
+        'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_reset","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","usage":{"input_tokens":10,"output_tokens":0}}}\n\n',
+        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"before reset"}}\n\n',
+      ],
+      socketDestroy: true,
+    };
+
+    const response = await sendProxyRequest(proxyPort, JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 100,
+      stream: true,
+      messages: [{ role: 'user', content: 'test reset' }],
+    }));
+
+    // Client response should have ended (not hung)
+    assert.ok(response.status >= 200, 'Should receive a response, not hang');
+    nextResponse = null;
+  });
+
+  it('E3b: proxy survives socket destroy', async () => {
+    await new Promise(r => setTimeout(r, 300));
+    const health = await httpGet(proxyPort, '/_api/health');
+    assert.deepEqual(health, { ok: true });
+  });
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────

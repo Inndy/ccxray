@@ -91,6 +91,15 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
   const eventTimestamps = [];
   let eventSeqIdx = 0;
 
+  proxyRes.on('error', (err) => {
+    console.error(`\x1b[31m❌ UPSTREAM STREAM ERROR: ${err.message}\x1b[0m`);
+    if (reqSessionId) {
+      store.activeRequests[reqSessionId] = Math.max(0, (store.activeRequests[reqSessionId] || 1) - 1);
+      broadcastSessionStatus(reqSessionId);
+    }
+    if (!clientRes.writableEnded) clientRes.end();
+  });
+
   proxyRes.on('data', chunk => {
     resChunks.push(chunk);
     sseLineBuf += chunk.toString();
@@ -296,6 +305,15 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
 function handleNonSSEResponse(ctx, proxyRes, clientRes) {
   const { id, startTime, parsedBody, reqSessionId } = ctx;
   const resChunks = [];
+
+  proxyRes.on('error', (err) => {
+    console.error(`\x1b[31m❌ UPSTREAM STREAM ERROR: ${err.message}\x1b[0m`);
+    if (reqSessionId) {
+      store.activeRequests[reqSessionId] = Math.max(0, (store.activeRequests[reqSessionId] || 1) - 1);
+      broadcastSessionStatus(reqSessionId);
+    }
+    if (!clientRes.writableEnded) clientRes.end();
+  });
 
   proxyRes.on('data', chunk => {
     clientRes.write(chunk);
