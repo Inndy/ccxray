@@ -236,6 +236,88 @@ describe('R4: port conflict', () => {
   });
 });
 
+// ── R2: hub crash recovery (sequential fork → kill → re-fork) ──────
+
+describe('R2: hub crash recovery', () => {
+  let hubPid1 = null;
+  let hubPid2 = null;
+  let port;
+
+  after(async () => {
+    for (const pid of [hubPid1, hubPid2]) {
+      if (pid) try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+    try { fs.unlinkSync(path.join(TEST_HOME, 'hub.json')); } catch {}
+  });
+
+  it('re-forks hub after original hub is killed', async () => {
+    port = await findFreePort();
+
+    // 1. Fork first hub
+    const child1 = spawnServer(['--port', String(port), '--hub-mode']);
+    await waitForPort(port);
+    const lock1 = JSON.parse(fs.readFileSync(path.join(TEST_HOME, 'hub.json'), 'utf8'));
+    hubPid1 = lock1.pid;
+    assert.ok(hubPid1 > 0);
+    assert.equal(lock1.port, port);
+
+    // 2. Kill first hub
+    process.kill(hubPid1, 'SIGKILL');
+    await new Promise(r => child1.on('exit', r));
+
+    // 3. Delete lockfile (simulating what startHubMonitor does)
+    try { fs.unlinkSync(path.join(TEST_HOME, 'hub.json')); } catch {}
+
+    // 4. Wait for port to be released
+    await new Promise(resolve => {
+      const check = () => {
+        const srv = net.createServer();
+        srv.once('error', () => setTimeout(check, 200));
+        srv.once('listening', () => srv.close(() => resolve()));
+        srv.listen(port);
+      };
+      check();
+    });
+
+    // 5. Fork second hub on same port
+    const child2 = spawnServer(['--port', String(port), '--hub-mode']);
+    await waitForPort(port);
+    const lock2 = JSON.parse(fs.readFileSync(path.join(TEST_HOME, 'hub.json'), 'utf8'));
+    hubPid2 = lock2.pid;
+    assert.ok(hubPid2 > 0);
+    assert.equal(lock2.port, port);
+    assert.notEqual(hubPid2, hubPid1);
+
+    // 6. Verify new hub is healthy
+    const health = await httpGet(port, '/_api/health');
+    assert.deepEqual(health, { ok: true });
+
+    await killAndWait(child2);
+  });
+});
+
+// ── E2: claude not found (ENOENT) ──────────────────────────────────
+
+describe('E2: claude not found', () => {
+  it('reports error when claude binary is missing', async () => {
+    const port = await findFreePort();
+
+    // Spawn with empty PATH so 'claude' cannot be found.
+    // Keep node in PATH so the process itself can run.
+    const nodeBin = path.dirname(process.execPath);
+    const { stderr, code } = await spawnAndCollect(
+      ['--port', String(port), 'claude'],
+      8000,
+      { PATH: nodeBin }
+    );
+
+    assert.ok(
+      stderr.includes('not found') || stderr.includes('ENOENT'),
+      `Expected ENOENT message, got: ${stderr.slice(0, 200)}`
+    );
+  });
+});
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function httpGet(port, urlPath) {
@@ -280,9 +362,9 @@ function httpPost(port, urlPath, body) {
   });
 }
 
-function spawnAndCollect(args, timeoutMs = 10000) {
+function spawnAndCollect(args, timeoutMs = 10000, envOverrides = {}) {
   return new Promise(resolve => {
-    const child = spawnServer(args);
+    const child = spawnServer(args, { env: envOverrides });
     let done = false;
     const finish = (code) => {
       if (done) return;
