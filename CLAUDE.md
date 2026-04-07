@@ -31,7 +31,7 @@ No build step. No linting. Restart to apply changes.
 | `server/pricing.js` | LiteLLM price fetch, 24h cache, fallback rates, cost calculation |
 | `server/cost-budget.js` | Cost data orchestration: cache, warm-up, grouping |
 | `server/cost-worker.js` | Child process: scans `~/.claude/` JSONL files without blocking event loop |
-| `server/store.js` | In-memory state: entries[] (capped at MAX_ENTRIES), sseClients[], sessions, intercept |
+| `server/store.js` | In-memory state: entries[] (capped at MAX_ENTRIES), sseClients[], sessions, intercept. Session detection with subagent inference (inflight + temporal heuristic) |
 | `server/sse-broadcast.js` | SSE broadcast to dashboard clients, entry summarization |
 | `server/helpers.js` | Tokenization, context breakdown, SSE parsing, formatting |
 | `server/system-prompt.js` | Version index, B2 block splitting, unified diff |
@@ -54,7 +54,7 @@ No build step. No linting. Restart to apply changes.
 | `public/app.js` | App initialization |
 | `public/miller-columns.js` | Projects → Sessions → Turns → Sections → Timeline → Detail |
 | `public/entry-rendering.js` | Turn rendering, session/project tracking |
-| `public/messages.js` | Merged steps: thinking + tool groups, timeline detail |
+| `public/messages.js` | Merged steps: thinking + tool groups, timeline detail, minimap rendering + layout |
 | `public/cost-budget-ui.js` | Cost analysis page, heatmap, burn rate |
 | `public/intercept-ui.js` | Pause/edit/approve/reject requests |
 | `public/system-prompt-ui.js` | Version history, unified diffs |
@@ -83,9 +83,10 @@ ccxray claude (2nd)  → discover hub via ~/.ccxray/hub.json → connect as clie
 ### Data Flow
 
 ```
-Claude Code → proxy receives request → detect session → [intercept check]
-  → log {id}_req.json → forward to Anthropic → capture SSE response
-  → log {id}_res.json → calculate cost → broadcast via SSE → dashboard updates
+Claude Code → proxy receives request → detect session (explicit or inferred)
+  → [intercept check] → log {id}_req.json → forward to Anthropic
+  → capture SSE response → log {id}_res.json → calculate cost
+  → broadcast via SSE (includes sessionInferred flag) → dashboard updates
 ```
 
 Logs stored in `~/.ccxray/logs/` (not package-relative). Respects `CCXRAY_HOME` env var.

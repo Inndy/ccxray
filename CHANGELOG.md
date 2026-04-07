@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **Subagent session attribution**: Bare subagent requests (no session_id, no tools, no system prompt) were incorrectly assigned to a separate `direct-api` session. Now uses inflight request tracking + 30s temporal window to infer the parent session. Subagent path never pollutes global `currentSessionId`.
+- **Minimap proportional accuracy**: `layoutMinimapBlocks` used `Math.max(blockEls.length, ...)` which inflated the blocks region when block count exceeded proportional height (e.g. 300 blocks at 24% usage displayed as 60%). Now uses proportional height as the authoritative ceiling.
 - **Orphan hub detection**: When `hub.json` lockfile is missing but a hub is still running, clients now probe the default port and reconnect automatically instead of failing with EADDRINUSE
 - **Browser auto-open**: First client connecting to a hub now opens the dashboard, regardless of whether the client forked the hub or discovered an existing one
 - **ECONNRESET handling**: Upstream socket destruction mid-response no longer leaves the client hanging; added `proxyRes` error handler for both SSE and non-SSE paths
@@ -11,9 +13,10 @@
 
 ### Added
 
+- **`sessionInferred` flag**: Entries attributed by inference (not explicit session_id) carry a `sessionInferred` flag through the full pipeline (store → forward → SSE → dashboard). Displayed as a yellow dashed "inferred" badge in the turn list and detail panel header.
 - `CCXRAY_MAX_ENTRIES` environment variable to configure in-memory entry limit (default: 5000)
 - Hub status endpoint includes `app: 'ccxray'` marker for identity verification
-- 57 new tests (98 → 155) covering proxy E2E, SSE streaming, intercept lifecycle, error paths, concurrency, and hub crash recovery
+- 66 new tests (98 → 164) covering proxy E2E, SSE streaming, intercept lifecycle, error paths, concurrency, hub crash recovery, and subagent session attribution
 
 ## 1.1.0
 
