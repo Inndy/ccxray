@@ -8,10 +8,6 @@ const { createStorage } = require('./storage');
 // ── Config ──────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PROXY_PORT || '5577', 10);
 
-// Snapshot ANTHROPIC_BASE_URL at module load time, before any child-process code
-// can overwrite it with ccxray's own proxy address.
-const _rawBaseUrl = process.env.ANTHROPIC_BASE_URL;
-
 /**
  * @internal – exported for testability only
  */
