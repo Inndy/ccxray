@@ -21,6 +21,7 @@ function summarizeEntry(entry) {
     thinkingDuration: entry.thinkingDuration || null,
     duplicateToolCalls: entry.duplicateToolCalls || null,
     hasCredential: entry.hasCredential || undefined,
+    toolSources: entry.toolSources || undefined,
     tokens: tok ? {
       system: tok.system, tools: tok.tools, messages: tok.messages, total: tok.total,
       contextBreakdown: tok.contextBreakdown,

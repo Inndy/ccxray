@@ -1360,7 +1360,7 @@ function renderDetailCol() {
           + totalPreview + ' steps · ' + (totalPreview - errorPreview) + '✓'
           + (errorPreview ? ' <span style="color:var(--red)">' + errorPreview + '✗</span>' : '')
           + '</div>';
-        const previewStepsHtml = renderStepListHtml(currentSteps, getActiveStepKey());
+        const previewStepsHtml = renderStepListHtml(currentSteps, getActiveStepKey(), e.toolSources);
         const previewMinimapHtml = (typeof renderMinimapHtml === 'function')
           ? renderMinimapHtml(currentSteps, tok?.perMessage || null, -1, e.maxContext, e.usage)
           : '';
@@ -1390,7 +1390,7 @@ function renderDetailCol() {
         + '</div>';
 
       const activeKey = getActiveStepKey();
-      const stepsHtml = renderStepListHtml(currentSteps, activeKey);
+      const stepsHtml = renderStepListHtml(currentSteps, activeKey, e.toolSources);
 
       const minimapHtml = (typeof renderMinimapHtml === 'function')
         ? renderMinimapHtml(currentSteps, tok?.perMessage || null, -1, e.maxContext, e.usage)

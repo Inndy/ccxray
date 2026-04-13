@@ -185,6 +185,10 @@
   .inferred-badge { font-size: 9px; color: var(--yellow); border: 1px dashed var(--yellow); border-radius: 2px; padding: 0 3px; margin-left: 4px; opacity: 0.85; flex-shrink: 0; }
   .cred-badge { font-size: 9px; color: var(--orange); border: 1px solid var(--orange); border-radius: 2px; padding: 0 3px; margin-left: 4px; opacity: 0.9; flex-shrink: 0; }
   .cred-highlight { background: rgba(240, 136, 62, 0.25); color: var(--orange); border-radius: 2px; padding: 0 1px; }
+  .source-badge { font-size: 9px; border-radius: 2px; padding: 0 3px; margin-left: 4px; opacity: 0.75; flex-shrink: 0; }
+  .source-local { color: #666; border: 1px solid #666; }
+  .source-local-sensitive { color: var(--orange); border: 1px solid var(--orange); opacity: 0.9; }
+  .source-network { color: #5b9bd5; border: 1px solid #5b9bd5; }
   .turn-sub { opacity: 0.7; border-left-color: transparent !important; }
   .turn-sub:hover { opacity: 1; }
   .turn-sub.selected { opacity: 1; border-left-color: var(--orange) !important; }

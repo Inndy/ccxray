@@ -10,6 +10,10 @@ const {
   extractToolCalls,
   computeThinkingDuration,
   categorizeTools,
+  scanCredentials,
+  entryHasCredential,
+  classifyToolSource,
+  buildToolSources,
 } = require('../server/helpers');
 
 describe('helpers', () => {
@@ -143,6 +147,107 @@ describe('helpers', () => {
     });
   });
 
+  describe('scanCredentials', () => {
+    it('returns false for null/empty', () => {
+      assert.equal(scanCredentials(null), false);
+      assert.equal(scanCredentials(''), false);
+    });
+
+    it('detects Anthropic API key', () => {
+      assert.equal(scanCredentials('sk-ant-api03-' + 'a'.repeat(30)), true);
+    });
+
+    it('detects GitHub PAT', () => {
+      assert.equal(scanCredentials('ghp_' + 'a'.repeat(36)), true);
+    });
+
+    it('detects AWS access key', () => {
+      assert.equal(scanCredentials('AKIA' + 'A'.repeat(16)), true);
+    });
+
+    it('detects PEM private key header', () => {
+      assert.equal(scanCredentials('-----BEGIN RSA PRIVATE KEY-----'), true);
+    });
+
+    it('returns false for clean text', () => {
+      assert.equal(scanCredentials('hello world, no secrets here'), false);
+    });
+
+    // Fix 1: URL-encoded bypass
+    it('detects URL-encoded credential', () => {
+      // sk-ant-<20+ chars> with dashes encoded as %2D
+      assert.equal(scanCredentials('sk%2Dant%2D' + 'a'.repeat(20)), true);
+    });
+
+    it('detects URL-encoded GitHub PAT', () => {
+      assert.equal(scanCredentials('ghp%5F' + 'a'.repeat(36)), true);
+    });
+  });
+
+  describe('entryHasCredential', () => {
+    it('returns false for empty entry', () => {
+      assert.equal(entryHasCredential({}), false);
+    });
+
+    it('detects credential in assistant SSE text delta', () => {
+      const entry = {
+        res: [{
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'sk-ant-api03-' + 'a'.repeat(30) },
+        }],
+      };
+      assert.equal(entryHasCredential(entry), true);
+    });
+
+    it('detects credential in tool_result string content', () => {
+      const entry = {
+        req: { messages: [{
+          role: 'user',
+          content: [{ type: 'tool_result', content: 'AKIA' + 'A'.repeat(16) }],
+        }]},
+      };
+      assert.equal(entryHasCredential(entry), true);
+    });
+
+    it('detects credential in tool_result array content', () => {
+      const entry = {
+        req: { messages: [{
+          role: 'user',
+          content: [{ type: 'tool_result', content: [
+            { type: 'text', text: 'ghp_' + 'a'.repeat(36) },
+          ]}],
+        }]},
+      };
+      assert.equal(entryHasCredential(entry), true);
+    });
+
+    // Fix 2: tool_use input scan
+    it('detects credential in tool_use input', () => {
+      const entry = {
+        req: { messages: [{
+          role: 'assistant',
+          content: [{
+            type: 'tool_use',
+            name: 'Bash',
+            input: { command: 'curl -H "Authorization: ghp_' + 'a'.repeat(36) + '"' },
+          }],
+        }]},
+      };
+      assert.equal(entryHasCredential(entry), true);
+    });
+
+    it('returns false for clean entry', () => {
+      const entry = {
+        res: [{ type: 'content_block_delta', delta: { type: 'text_delta', text: 'nothing sensitive' } }],
+        req: { messages: [{
+          role: 'assistant',
+          content: [{ type: 'tool_use', name: 'Read', input: { path: '/tmp/foo.txt' } }],
+        }]},
+      };
+      assert.equal(entryHasCredential(entry), false);
+    });
+  });
+
   describe('categorizeTools', () => {
     it('returns empty for null/empty', () => {
       const result = categorizeTools(null);
@@ -163,6 +268,66 @@ describe('helpers', () => {
       assert.equal(result.counts.mcp, 3);
       assert.equal(result.counts.other, 1);
       assert.equal(result.mcpPlugins.length, 2); // github, slack
+    });
+  });
+
+  describe('classifyToolSource', () => {
+    it('classifies WebFetch as network', () => {
+      assert.equal(classifyToolSource('WebFetch', { url: 'https://example.com' }), 'network');
+    });
+
+    it('classifies WebSearch as network', () => {
+      assert.equal(classifyToolSource('WebSearch', { query: 'hello' }), 'network');
+    });
+
+    it('classifies mcp tool with fetch suffix as network', () => {
+      assert.equal(classifyToolSource('mcp__brave__web_fetch', {}), 'network');
+    });
+
+    it('classifies mcp tool with search suffix as network', () => {
+      assert.equal(classifyToolSource('mcp__tavily__search', {}), 'network');
+    });
+
+    it('classifies Read with sensitive path as local:sensitive', () => {
+      assert.equal(classifyToolSource('Read', { file_path: '/Users/foo/.ssh/id_rsa' }), 'local:sensitive');
+    });
+
+    it('classifies Bash with .env path as local:sensitive', () => {
+      assert.equal(classifyToolSource('Bash', { command: 'cat .env' }), 'local:sensitive');
+    });
+
+    it('classifies Read with plain path as local', () => {
+      assert.equal(classifyToolSource('Read', { file_path: '/tmp/foo.txt' }), 'local');
+    });
+
+    it('classifies unknown tool as local (conservative default)', () => {
+      assert.equal(classifyToolSource('SomeCustomTool', { x: 1 }), 'local');
+    });
+  });
+
+  describe('buildToolSources', () => {
+    it('returns empty object for entry with no tool_use', () => {
+      const entry = { req: { messages: [{ role: 'user', content: 'hello' }] } };
+      assert.deepEqual(buildToolSources(entry), {});
+    });
+
+    it('maps tool_use id to classified source', () => {
+      const entry = {
+        req: { messages: [{
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: 'WebFetch', input: { url: 'https://x.com' } },
+            { type: 'tool_use', id: 'tu_2', name: 'Read', input: { file_path: '/tmp/a.txt' } },
+          ],
+        }]},
+      };
+      const sources = buildToolSources(entry);
+      assert.equal(sources['tu_1'], 'network');
+      assert.equal(sources['tu_2'], 'local');
+    });
+
+    it('handles entry with no req', () => {
+      assert.deepEqual(buildToolSources({}), {});
     });
   });
 });

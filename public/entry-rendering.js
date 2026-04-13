@@ -268,6 +268,8 @@ function addEntry(e) {
     isSubagent, sessionInferred: e.sessionInferred || false, displayNum, ctxUsed, isCompacted, receivedAt: e.receivedAt || null,
     thinkingDuration: e.thinkingDuration || null,
     duplicateToolCalls: e.duplicateToolCalls || null,
+    hasCredential: e.hasCredential || false,
+    toolSources: e.toolSources || null,
   });
 
   const el = document.createElement('div');

@@ -349,7 +349,12 @@ const CREDENTIAL_PATTERNS = [
 
 function scanCredentials(text) {
   if (!text) return false;
-  return CREDENTIAL_PATTERNS.some(p => p.test(text));
+  if (CREDENTIAL_PATTERNS.some(p => p.test(text))) return true;
+  try {
+    const decoded = decodeURIComponent(text);
+    if (decoded !== text) return CREDENTIAL_PATTERNS.some(p => p.test(decoded));
+  } catch (_) {}
+  return false;
 }
 
 function entryHasCredential(entry) {
@@ -369,6 +374,8 @@ function entryHasCredential(entry) {
     for (const block of msg.content) {
       if (msg.role === 'assistant' && block.type === 'text') {
         if (scanCredentials(block.text)) return true;
+      } else if (msg.role === 'assistant' && block.type === 'tool_use' && block.input) {
+        if (scanCredentials(JSON.stringify(block.input))) return true;
       } else if (block.type === 'tool_result') {
         const c = block.content;
         if (typeof c === 'string' && scanCredentials(c)) return true;
@@ -381,6 +388,39 @@ function entryHasCredential(entry) {
     }
   }
   return false;
+}
+
+// ── Taint / source classification ───────────────────────────────────
+const SENSITIVE_PATH_PATTERNS = [
+  '~/.ssh/', 'id_rsa', 'id_ed25519', 'id_ecdsa', 'authorized_keys', 'known_hosts',
+  '.env', '/.env',
+  '/etc/passwd', '/etc/shadow', '/etc/sudoers',
+];
+
+const NETWORK_TOOL_NAMES = new Set(['WebFetch', 'WebSearch']);
+const NETWORK_TOOL_SUFFIXES = ['_fetch', '_search', '_browse', '_crawl'];
+
+function classifyToolSource(toolName, toolInput) {
+  if (NETWORK_TOOL_NAMES.has(toolName)) return 'network';
+  if (toolName.startsWith('mcp__') && NETWORK_TOOL_SUFFIXES.some(s => toolName.endsWith(s))) return 'network';
+  const inputStr = toolInput ? JSON.stringify(toolInput).toLowerCase() : '';
+  if (SENSITIVE_PATH_PATTERNS.some(p => inputStr.includes(p.toLowerCase()))) return 'local:sensitive';
+  return 'local';
+}
+
+function buildToolSources(entry) {
+  const sources = {};
+  const messages = entry.req?.messages;
+  if (!Array.isArray(messages)) return sources;
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (block.type === 'tool_use' && block.id) {
+        sources[block.id] = classifyToolSource(block.name, block.input);
+      }
+    }
+  }
+  return sources;
 }
 
 // ── Tool usage extraction ────────────────────────────────────────────
@@ -437,4 +477,6 @@ module.exports = {
   extractDuplicateToolCalls,
   scanCredentials,
   entryHasCredential,
+  classifyToolSource,
+  buildToolSources,
 };

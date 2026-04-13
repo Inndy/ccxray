@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.5.0
+
+### Added
+
+- **Taint markers**: Every tool call in the timeline now shows a source badge — `[network]` (blue) for web/HTTP tools, `[local:sensitive]` (orange) for reads from sensitive paths (`~/.ssh/`, `.env`, `/etc/passwd`, etc.), `[local]` (grey) for ordinary file/shell access. Helps identify which turns introduced untrusted external content.
+
+## 1.4.0
+
+### Added
+
+- **Step-level credential badge**: Credential patterns detected in individual tool call results now show an `⚠ cred` badge directly on the timeline step row, in addition to the turn-level badge.
+
+## 1.3.0
+
+### Added
+
+- **Credential scanning**: Detects API keys (`sk-ant-`, `sk-`, `ghp_`, `AKIA`), SSH private keys, and `.env` content appearing in assistant responses or tool results. Flagged turns show an `⚠ cred` badge in the turn list and inline orange highlights in the detail view. Scanning also covers URL-encoded patterns and credentials passed as tool inputs.
+
 ## 1.2.0
 
 ### Added

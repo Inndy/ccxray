@@ -54,6 +54,13 @@ function callHasCredential(c) {
   if (Array.isArray(r)) return r.some(b => b.type === 'text' && hasCredential(b.text));
   return false;
 }
+function sourceLabel(source) {
+  if (!source || source === 'local') return '<span class="source-badge source-local">[local]</span>';
+  if (source === 'local:sensitive') return '<span class="source-badge source-local-sensitive">[local:sensitive]</span>';
+  if (source === 'network') return '<span class="source-badge source-network">[network]</span>';
+  return '';
+}
+
 function classifyUserMessage(msg) {
   if (msg.role !== 'user') return null;
   const blocks = Array.isArray(msg.content)
@@ -367,7 +374,7 @@ function prepareTimelineSteps(messages, resEvents) {
 }
 
 // Generate the step list HTML (used in both accordion and split-pane modes)
-function renderStepListHtml(steps, activeStepKey) {
+function renderStepListHtml(steps, activeStepKey, toolSources) {
   let html = '';
   let lastSource = null;
 
@@ -427,6 +434,9 @@ function renderStepListHtml(steps, activeStepKey) {
         }
         if (!c.pending && callHasCredential(c)) {
           html += '<span class="cred-badge">⚠ cred</span>';
+        }
+        if (!c.pending && toolSources && c.toolUseId) {
+          html += sourceLabel(toolSources[c.toolUseId]);
         }
         html += '</div>';
         if (c.isError && c.errorSummary) {
