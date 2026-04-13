@@ -1,6 +1,14 @@
 // ── Entry rendering ──
 let newTurnCount = 0;
 
+function formatGap(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60), rem = s % 60;
+  if (m < 60) return m + 'm' + (rem ? ' ' + rem + 's' : '');
+  return Math.floor(m / 60) + 'h' + (m % 60 ? ' ' + (m % 60) + 'm' : '');
+}
+
 function showNewTurnPill(count) {
   const existing = document.getElementById('new-turn-pill');
   if (existing) {
@@ -243,6 +251,26 @@ function addEntry(e) {
     if (sessElCtx) sessElCtx.innerHTML = renderSessionItem(sess, sid);
   }
 
+  // Gap timing: idle time from end of previous turn to start of this turn
+  let prevInSession = null;
+  for (let i = allEntries.length - 1; i >= 0; i--) {
+    if (allEntries[i].sessionId === sid && allEntries[i].receivedAt) { prevInSession = allEntries[i]; break; }
+  }
+  let gapHtml = '';
+  if (prevInSession && e.receivedAt) {
+    const prevEnd = prevInSession.receivedAt + parseFloat(prevInSession.elapsed || 0) * 1000;
+    const gapMs = Math.max(0, e.receivedAt - prevEnd);
+    const cacheHit  = (usage?.cache_read_input_tokens || 0) > 0;
+    const cacheMiss = !cacheHit && (usage?.cache_creation_input_tokens || 0) > 0;
+    const gapColor = cacheHit  ? 'var(--green)'
+                   : cacheMiss ? (gapMs > 60 * 60000 ? 'var(--red)' : 'var(--yellow)')
+                   : 'var(--dim)';
+    const gapTitle = cacheHit  ? 'Cache hit'
+                   : cacheMiss ? (gapMs > 60 * 60000 ? 'Cache miss — all TTL expired (> 1h)' : 'Cache miss — default TTL (5m) likely expired')
+                   : 'No cache data';
+    gapHtml = '<div class="turn-gap" style="color:' + gapColor + '" title="' + gapTitle + '">⏸ ' + formatGap(gapMs) + '</div>';
+  }
+
   // Compression detection: compare message count AND context tokens vs previous main turn.
   // True compaction = msgCount drops significantly (messages got summarized/removed).
   // Token-only drops can happen from cache eviction or normal conversation flow.
@@ -309,6 +337,7 @@ function addEntry(e) {
       '</div>' + pctLabel + '</div>'
     : '';
   el.innerHTML =
+    gapHtml +
     '<div class="turn-line1">' + indent +
       '<span class="turn-num">' + (isSubagent ? '' : '#') + displayNum + '</span>' +
       '<span class="turn-model">' + escapeHtml(shortModel) + '</span>' +
