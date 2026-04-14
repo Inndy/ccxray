@@ -243,7 +243,14 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
     const sessionId = reqSessionId;
     const costInfo = calculateCost(usage, parsedBody?.model);
     const maxContext = config.getMaxContext(parsedBody?.model, parsedBody?.system);
-    const title = helpers.extractResponseTitle(events);
+    const isSubagent = !store.extractCwd(parsedBody);
+    const title = (isSubagent
+      ? helpers.extractFirstUserText(parsedBody)
+      : (helpers.extractResponseTitle(events)
+         || helpers.extractLastUserText(parsedBody)
+         || helpers.extractToolResultSummary(parsedBody)))
+      || null;
+    const toolFail = helpers.hasToolFail(parsedBody);
     const thinkingDuration = helpers.computeThinkingDuration(events);
     const entry = {
       id, ts: ctx.ts, sessionId, method: ctx.clientReq.method, url: ctx.clientReq.url,
@@ -260,10 +267,11 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
       msgCount: parsedBody?.messages?.length || 0,
       toolCount: parsedBody?.tools?.length || 0,
       toolCalls: helpers.extractToolCalls(parsedBody?.messages),
-      isSubagent: !store.extractCwd(parsedBody),
+      isSubagent,
       sessionInferred: ctx.sessionInferred || false,
       title,
       stopReason,
+      toolFail,
       sysHash: ctx.sysHash || null,
       toolsHash: ctx.toolsHash || null,
     };
@@ -283,6 +291,7 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
       cwd: entry.cwd, isSSE: true,
       usage, cost: costInfo, maxContext,
       stopReason, title, thinkingDuration,
+      toolFail,
       elapsed, status: proxyRes.statusCode,
       receivedAt: startTime,
       sysHash: ctx.sysHash || null, toolsHash: ctx.toolsHash || null,
@@ -346,7 +355,14 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
 
     const sessionId = reqSessionId;
     const maxContext = config.getMaxContext(parsedBody?.model, parsedBody?.system);
-    const title = helpers.extractResponseTitle(resData);
+    const isSubagent = !store.extractCwd(parsedBody);
+    const title = (isSubagent
+      ? helpers.extractFirstUserText(parsedBody)
+      : (helpers.extractResponseTitle(resData)
+         || helpers.extractLastUserText(parsedBody)
+         || helpers.extractToolResultSummary(parsedBody)))
+      || null;
+    const toolFail = helpers.hasToolFail(parsedBody);
     const stopReason = resData?.stop_reason || '';
     const entry = {
       id, ts: ctx.ts, sessionId, method: ctx.clientReq.method, url: ctx.clientReq.url,
@@ -362,10 +378,11 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
       msgCount: parsedBody?.messages?.length || 0,
       toolCount: parsedBody?.tools?.length || 0,
       toolCalls: helpers.extractToolCalls(parsedBody?.messages),
-      isSubagent: !store.extractCwd(parsedBody),
+      isSubagent,
       sessionInferred: ctx.sessionInferred || false,
       title,
       stopReason,
+      toolFail,
       sysHash: ctx.sysHash || null,
       toolsHash: ctx.toolsHash || null,
     };
@@ -383,6 +400,7 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
       cwd: entry.cwd, isSSE: false,
       usage: null, cost: null, maxContext,
       stopReason, title, thinkingDuration: null,
+      toolFail,
       elapsed, status: proxyRes.statusCode,
       receivedAt: startTime,
       sysHash: ctx.sysHash || null, toolsHash: ctx.toolsHash || null,

@@ -338,6 +338,99 @@ function extractResponseTitle(res) {
   return (firstSentence || text).slice(0, 80) || null;
 }
 
+// Extract pure text from a message's content blocks (ignores tool_result, tool_use, etc.)
+function collectTextFromContent(content) {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(b => b && b.type === 'text' && typeof b.text === 'string')
+    .map(b => b.text)
+    .join(' ')
+    .trim();
+}
+
+// Fallback #2: last user message had pure text (user-initiated turn with no response text)
+function extractLastUserText(req) {
+  const messages = req?.messages;
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== 'user') continue;
+    const text = collectTextFromContent(m.content);
+    if (text) {
+      const firstSentence = text.split(/[.\n]/)[0].trim();
+      return (firstSentence || text).replace(/\s+/g, ' ') || null;
+    }
+    return null; // last user msg exists but has no text (tool_results only)
+  }
+  return null;
+}
+
+// Fallback #3: last user message is all tool_results → summarize completed tool names
+// Maps tool_use_id → name using preceding assistant message, dedupes, preserves order, caps at 5.
+function extractToolResultSummary(req) {
+  const messages = req?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return null;
+  const last = messages[messages.length - 1];
+  if (last?.role !== 'user' || !Array.isArray(last.content)) return null;
+  const ids = [];
+  for (const b of last.content) {
+    if (b?.type === 'tool_result' && typeof b.tool_use_id === 'string') ids.push(b.tool_use_id);
+  }
+  if (!ids.length) return null;
+  // Build id → name from all preceding assistant messages
+  const idToName = {};
+  for (let i = 0; i < messages.length - 1; i++) {
+    const m = messages[i];
+    if (m?.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      if (b?.type === 'tool_use' && b.id && b.name) idToName[b.id] = b.name;
+    }
+  }
+  const names = [];
+  const seen = new Set();
+  for (const id of ids) {
+    const name = idToName[id];
+    if (!name) continue;
+    const shortName = name.replace(/^mcp__[^_]+__/, '');
+    if (seen.has(shortName)) continue;
+    seen.add(shortName);
+    names.push(shortName);
+  }
+  if (!names.length) return null;
+  const head = names.slice(0, 5).join(' · ');
+  const overflow = names.length > 5 ? ` +${names.length - 5}` : '';
+  return '↩ ' + head + overflow;
+}
+
+// Fallback #4 (subagent): first user message text — the task the subagent was given
+function extractFirstUserText(req) {
+  const messages = req?.messages;
+  if (!Array.isArray(messages)) return null;
+  for (const m of messages) {
+    if (m?.role !== 'user') continue;
+    const text = collectTextFromContent(m.content);
+    if (text) {
+      const firstSentence = text.split(/[.\n]/)[0].trim();
+      return (firstSentence || text).replace(/\s+/g, ' ') || null;
+    }
+  }
+  return null;
+}
+
+// Scan request for any tool_result with is_error: true
+function hasToolFail(req) {
+  const messages = req?.messages;
+  if (!Array.isArray(messages)) return false;
+  for (const m of messages) {
+    if (!Array.isArray(m?.content)) continue;
+    for (const b of m.content) {
+      if (b?.type === 'tool_result' && b.is_error === true) return true;
+    }
+  }
+  return false;
+}
+
 // ── Credential scanning ──────────────────────────────────────────────
 const CREDENTIAL_PATTERNS = [
   /sk-ant-[a-zA-Z0-9_-]{20,}/,
@@ -473,6 +566,10 @@ module.exports = {
   computeThinkingDuration,
   parseSSEEvents,
   extractResponseTitle,
+  extractLastUserText,
+  extractToolResultSummary,
+  extractFirstUserText,
+  hasToolFail,
   extractToolCalls,
   extractDuplicateToolCalls,
   scanCredentials,

@@ -9,6 +9,7 @@ function summarizeEntry(entry) {
     id: entry.id, ts: entry.ts, sessionId: entry.sessionId,
     method: entry.method, url: entry.url,
     elapsed: entry.elapsed, status: entry.status, isSSE: entry.isSSE,
+    receivedAt: entry.receivedAt || null,
     usage: entry.usage, cost: entry.cost, maxContext: entry.maxContext, cwd: entry.cwd,
     model: entry.model || null,
     msgCount: entry.msgCount || 0,
@@ -20,6 +21,7 @@ function summarizeEntry(entry) {
     stopReason: entry.stopReason || '',
     thinkingDuration: entry.thinkingDuration || null,
     duplicateToolCalls: entry.duplicateToolCalls || null,
+    toolFail: entry.toolFail || false,
     hasCredential: entry.hasCredential || undefined,
     toolSources: entry.toolSources || undefined,
     tokens: tok ? {

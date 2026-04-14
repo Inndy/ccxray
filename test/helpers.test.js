@@ -7,6 +7,10 @@ const {
   totalContextTokens,
   parseSSEEvents,
   extractResponseTitle,
+  extractLastUserText,
+  extractToolResultSummary,
+  extractFirstUserText,
+  hasToolFail,
   extractToolCalls,
   computeThinkingDuration,
   categorizeTools,
@@ -328,6 +332,177 @@ describe('helpers', () => {
 
     it('handles entry with no req', () => {
       assert.deepEqual(buildToolSources({}), {});
+    });
+  });
+
+  describe('extractLastUserText', () => {
+    it('returns null for missing or empty input', () => {
+      assert.equal(extractLastUserText(null), null);
+      assert.equal(extractLastUserText({}), null);
+      assert.equal(extractLastUserText({ messages: [] }), null);
+    });
+
+    it('extracts text from string-content user message', () => {
+      const req = { messages: [
+        { role: 'assistant', content: 'something' },
+        { role: 'user', content: 'Fix the login bug please' },
+      ]};
+      assert.equal(extractLastUserText(req), 'Fix the login bug please');
+    });
+
+    it('extracts first sentence from block-content user message', () => {
+      const req = { messages: [{
+        role: 'user',
+        content: [{ type: 'text', text: 'Refactor auth.  Also add tests.' }],
+      }]};
+      assert.equal(extractLastUserText(req), 'Refactor auth');
+    });
+
+    it('returns null when last user msg is only tool_results', () => {
+      const req = { messages: [
+        { role: 'user', content: 'task' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+      ]};
+      assert.equal(extractLastUserText(req), null);
+    });
+
+    it('ignores non-text blocks when searching for text', () => {
+      const req = { messages: [{
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', content: 'noise' },
+          { type: 'text', text: 'actual question' },
+        ],
+      }]};
+      assert.equal(extractLastUserText(req), 'actual question');
+    });
+  });
+
+  describe('extractToolResultSummary', () => {
+    const req = (messages) => ({ messages });
+
+    it('returns null when no tool_results', () => {
+      assert.equal(extractToolResultSummary(req([
+        { role: 'user', content: 'hi' },
+      ])), null);
+    });
+
+    it('maps tool_use_id to name and produces summary', () => {
+      const r = req([
+        { role: 'user', content: 'do stuff' },
+        { role: 'assistant', content: [
+          { type: 'tool_use', id: 't1', name: 'Read' },
+          { type: 'tool_use', id: 't2', name: 'Bash' },
+        ]},
+        { role: 'user', content: [
+          { type: 'tool_result', tool_use_id: 't1' },
+          { type: 'tool_result', tool_use_id: 't2' },
+        ]},
+      ]);
+      assert.equal(extractToolResultSummary(r), '↩ Read · Bash');
+    });
+
+    it('dedupes repeated tool names', () => {
+      const r = req([
+        { role: 'assistant', content: [
+          { type: 'tool_use', id: 't1', name: 'Bash' },
+          { type: 'tool_use', id: 't2', name: 'Bash' },
+          { type: 'tool_use', id: 't3', name: 'Bash' },
+        ]},
+        { role: 'user', content: [
+          { type: 'tool_result', tool_use_id: 't1' },
+          { type: 'tool_result', tool_use_id: 't2' },
+          { type: 'tool_result', tool_use_id: 't3' },
+        ]},
+      ]);
+      assert.equal(extractToolResultSummary(r), '↩ Bash');
+    });
+
+    it('caps at 5 with overflow marker', () => {
+      const ids = ['a','b','c','d','e','f','g'];
+      const names = ['Read','Bash','Write','Edit','Grep','Glob','WebFetch'];
+      const r = req([
+        { role: 'assistant', content: ids.map((id, i) => ({ type: 'tool_use', id, name: names[i] })) },
+        { role: 'user', content: ids.map(id => ({ type: 'tool_result', tool_use_id: id })) },
+      ]);
+      assert.equal(extractToolResultSummary(r), '↩ Read · Bash · Write · Edit · Grep +2');
+    });
+
+    it('strips mcp__server__ prefix from tool names', () => {
+      const r = req([
+        { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'mcp__github__list_issues' }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1' }] },
+      ]);
+      assert.equal(extractToolResultSummary(r), '↩ list_issues');
+    });
+
+    it('returns null when tool_use_id has no matching tool_use', () => {
+      const r = req([
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'unknown' }] },
+      ]);
+      assert.equal(extractToolResultSummary(r), null);
+    });
+  });
+
+  describe('extractFirstUserText', () => {
+    it('returns null for missing input', () => {
+      assert.equal(extractFirstUserText(null), null);
+      assert.equal(extractFirstUserText({ messages: [] }), null);
+    });
+
+    it('returns first user text, ignoring non-text blocks', () => {
+      const req = { messages: [
+        { role: 'user', content: [
+          { type: 'tool_result', content: 'noise' },
+          { type: 'text', text: 'Search for login bug.  Also check API.' },
+        ]},
+        { role: 'user', content: 'later message' },
+      ]};
+      assert.equal(extractFirstUserText(req), 'Search for login bug');
+    });
+
+    it('skips empty first user message and continues to next', () => {
+      const req = { messages: [
+        { role: 'user', content: [{ type: 'tool_result', content: 'x' }] },
+        { role: 'user', content: 'real task' },
+      ]};
+      assert.equal(extractFirstUserText(req), 'real task');
+    });
+  });
+
+  describe('hasToolFail', () => {
+    it('returns false for missing input', () => {
+      assert.equal(hasToolFail(null), false);
+      assert.equal(hasToolFail({}), false);
+      assert.equal(hasToolFail({ messages: [] }), false);
+    });
+
+    it('returns true when any tool_result has is_error: true', () => {
+      const req = { messages: [{
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 't1', is_error: false },
+          { type: 'tool_result', tool_use_id: 't2', is_error: true },
+        ],
+      }]};
+      assert.equal(hasToolFail(req), true);
+    });
+
+    it('returns false when all tool_results are successful', () => {
+      const req = { messages: [{
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', is_error: false }],
+      }]};
+      assert.equal(hasToolFail(req), false);
+    });
+
+    it('treats undefined is_error as success', () => {
+      const req = { messages: [{
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1' }],
+      }]};
+      assert.equal(hasToolFail(req), false);
     });
   });
 });
