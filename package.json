@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@fission-ai/openspec": "^1.2.0",
+    "agent-browser": "github:vercel-labs/agent-browser",
     "puppeteer": "^24.39.1"
   }
 }

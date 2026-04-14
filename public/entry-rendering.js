@@ -260,14 +260,8 @@ function addEntry(e) {
   if (prevInSession && e.receivedAt) {
     const prevEnd = prevInSession.receivedAt + parseFloat(prevInSession.elapsed || 0) * 1000;
     const gapMs = Math.max(0, e.receivedAt - prevEnd);
-    const cacheHit  = (usage?.cache_read_input_tokens || 0) > 0;
-    const cacheMiss = !cacheHit && (usage?.cache_creation_input_tokens || 0) > 0;
-    const gapColor = cacheHit  ? 'var(--green)'
-                   : cacheMiss ? (gapMs > 60 * 60000 ? 'var(--red)' : 'var(--yellow)')
-                   : 'var(--dim)';
-    const gapTitle = cacheHit  ? 'Cache hit'
-                   : cacheMiss ? (gapMs > 60 * 60000 ? 'Cache miss — all TTL expired (> 1h)' : 'Cache miss — default TTL (5m) likely expired')
-                   : 'No cache data';
+    const gapColor = gapMs < 5 * 60000 ? 'var(--green)' : gapMs < 60 * 60000 ? 'var(--yellow)' : 'var(--red)';
+    const gapTitle = gapMs < 5 * 60000 ? 'Cache likely warm (< 5m)' : gapMs < 60 * 60000 ? 'Default cache expired (5m–1h)' : 'All cache expired (> 1h)';
     gapHtml = '<div class="turn-gap" style="color:' + gapColor + '" title="' + gapTitle + '">⏸ ' + formatGap(gapMs) + '</div>';
   }
 
