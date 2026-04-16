@@ -185,7 +185,7 @@
   .turn-item .turn-critical-marker { font-size: 10px; color: var(--red); font-weight: bold; flex-shrink: 0; }
   .turn-item .turn-cost { color: var(--yellow); margin-left: auto; flex-shrink: 0; }
   /* Line 2: title */
-  .turn-item .turn-title { font-size: 11px; color: var(--text); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .turn-item .turn-title { font-size: 11px; color: var(--text); margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
   /* Line 3: ctx bar */
   .turn-item .turn-ctx { margin-top: 4px; }
   /* Line 4: secondary — time + tools */
