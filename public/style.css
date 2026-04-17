@@ -189,7 +189,7 @@
   /* Line 3: ctx bar */
   .turn-item .turn-ctx { margin-top: 4px; }
   /* Line 4: secondary — time + tools */
-  .turn-item .turn-secondary { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--dim); margin-top: 3px; }
+  .turn-item .turn-secondary { display: flex; flex-direction: column; gap: 3px; font-size: 9px; color: var(--dim); margin-top: 3px; }
   .turn-item .turn-time-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .turn-item .turn-tools-row { display: flex; flex-wrap: wrap; gap: 3px; }
   .turn-item .turn-elapsed { white-space: nowrap; }
@@ -224,6 +224,7 @@
   .turn-ctx-pct.ctx-critical { color: var(--red); }
   .turn-ctx-pct.ctx-warning { color: var(--yellow); }
   .turn-hit-pct { color: var(--color-cache-read); }
+  .turn-hit-pct.hit-cold { color: var(--red); }
   #ctx-legend { padding: 3px 10px 4px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center; font-size: 9px; color: var(--dim); }
   .ctx-legend-dot { display: inline-block; width: 7px; height: 7px; border-radius: 1px; margin-right: 2px; vertical-align: middle; }
   #session-sparkline { padding: 6px 10px; border-bottom: 1px solid var(--border); display: none; }

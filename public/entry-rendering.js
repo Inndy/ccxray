@@ -389,7 +389,8 @@ function addEntry(e) {
   const ctxPctClass = ctxPct > 95 ? 'ctx-critical' : ctxPct > 85 ? 'ctx-warning' : '';
   const ctxPctLabel = '<span class="turn-ctx-pct' + (ctxPctClass ? ' ' + ctxPctClass : '') + '">ctx:' + ctxPct.toFixed(0) + '%</span>';
   const hitPct = totalUsed > 0 ? Math.round(ctxCacheRead / totalUsed * 100) : null;
-  const hitLabel = hitPct !== null ? '<span class="turn-hit-pct">hit:' + hitPct + '%</span>' : '';
+  const hitPctClass = hitPct !== null && hitPct < 10 ? ' hit-cold' : '';
+  const hitLabel = hitPct !== null ? '<span class="turn-hit-pct' + hitPctClass + '">hit:' + hitPct + '%</span>' : '';
   const ctxBarHtml = ctxUsed > 0
     ? '<div class="turn-ctx turn-ctx-bar">' +
         '<div class="turn-ctx-bar-bg">' +
@@ -418,8 +419,8 @@ function addEntry(e) {
     chipsHtml += '<span class="' + cls + '">' + escapeHtml(n.replace(/^mcp__[^_]+__/, '')) + '</span>';
   }
   const secondaryLine = '<div class="turn-secondary">' +
-    '<div class="turn-time-row">' + timeHtml + '</div>' +
     (chipsHtml ? '<div class="turn-tools-row">' + chipsHtml + '</div>' : '') +
+    '<div class="turn-time-row">' + timeHtml + '</div>' +
     '</div>';
 
   // Line 5: warning/notice risk (no emoji, plain text)
