@@ -209,7 +209,7 @@
   .turn-sub { opacity: 0.7; }
   .turn-sub:hover { opacity: 1; }
   .turn-sub.selected { opacity: 1; border-left-color: var(--orange) !important; }
-  .tool-chip.chip-agent { color: var(--orange); }
+
   .si-tools { font-size: 10px; color: var(--dim); margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .col-sticky-header { position: sticky; top: 0; z-index: 2; background: var(--surface); }
   #scroll-toggle { user-select: none; }

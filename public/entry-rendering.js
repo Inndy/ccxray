@@ -185,14 +185,14 @@ function isAbnormalStop(stopReason) {
   return !!stopReason && stopReason !== 'end_turn' && stopReason !== 'tool_use';
 }
 
-function classifySeverity(entry, ctxPct) {
+function classifySeverity(entry, ctxPct, dupesMax) {
   if (ctxPct > 95) return 'critical';
   if (entry.status != null && (entry.status < 200 || entry.status >= 300)) return 'critical';
   if (isAbnormalStop(entry.stopReason)) return 'critical';
   if (ctxPct > 85) return 'warning';
   if (entry.hasCredential) return 'warning';
   if (entry.toolFail) return 'warning';
-  if (entry.duplicateToolCalls && Object.values(entry.duplicateToolCalls).some(c => c >= 2)) return 'notice';
+  if (dupesMax >= 2) return 'notice';
   return null;
 }
 
@@ -340,10 +340,11 @@ function addEntry(e) {
   const toolFail = e.toolFail || false;
   const hasCred = e.hasCredential || false;
   const dupes = e.duplicateToolCalls || null;
+  const dupesMax = dupes ? Math.max(...Object.values(dupes)) : 0;
 
   const ctxMax = e.maxContext || DEFAULT_MAX_CTX;
   const ctxPct = ctxUsed > 0 ? Math.min(100, ctxUsed / ctxMax * 100) : 0;
-  const severity = classifySeverity({ status: e.status, stopReason, hasCredential: hasCred, toolFail, duplicateToolCalls: dupes }, ctxPct);
+  const severity = classifySeverity({ status: e.status, stopReason, hasCredential: hasCred, toolFail }, ctxPct, dupesMax);
 
   const el = document.createElement('div');
   el.className = 'turn-item' + (isSubagent ? ' turn-sub' : '') + (severity ? ' risk-' + severity : '');
@@ -415,8 +416,7 @@ function addEntry(e) {
   timeHtml += '<span class="turn-elapsed">dur:' + formatGap(elapsedMs) + thinkSuffix + '</span>';
   let chipsHtml = '';
   for (const n of Object.keys(e.toolCalls || {})) {
-    const cls = 'tool-chip';
-    chipsHtml += '<span class="' + cls + '">' + escapeHtml(n.replace(/^mcp__[^_]+__/, '')) + '</span>';
+    chipsHtml += '<span class="tool-chip">' + escapeHtml(n.replace(/^mcp__[^_]+__/, '')) + '</span>';
   }
   const secondaryLine = '<div class="turn-secondary">' +
     (chipsHtml ? '<div class="turn-tools-row">' + chipsHtml + '</div>' : '') +
@@ -427,10 +427,7 @@ function addEntry(e) {
   const riskMarkers = [];
   if (hasCred) riskMarkers.push('cred');
   if (toolFail) riskMarkers.push('tool-fail');
-  if (dupes) {
-    const maxCount = Math.max(...Object.values(dupes));
-    if (maxCount >= 2) riskMarkers.push('dupes\xD7' + maxCount);
-  }
+  if (dupesMax >= 2) riskMarkers.push('dupes\xD7' + dupesMax);
   const riskLine = riskMarkers.length ? '<div class="turn-risk-line">' + riskMarkers.join(' ') + '</div>' : '';
 
   el.innerHTML = identityLine + titleLine + ctxBarHtml + secondaryLine + riskLine;
