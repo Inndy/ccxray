@@ -38,7 +38,10 @@ function extractAgentType(sys) {
   // Short-form prompt (no B2): trust B1 identity only when B2 is absent.
   // Current Claude Code keeps B1 = "You are Claude Code…" branding for every
   // sub-agent, so B1 is NOT a reliable signal when B2 has content.
-  if (!b2 && b1.startsWith('You are Claude Code')) return { key: 'claude-code', label: 'Claude Code' };
+  if (!b2) {
+    if (b1.startsWith('You are Claude Code')) return { key: 'claude-code', label: 'Claude Code' };
+    if (b1.startsWith('You are a Claude agent, built on Anthropic')) return { key: 'sdk-agent', label: 'SDK Agent' };
+  }
 
   // Regex fallback for unknown future agent types
   const m = b2.match(/^You are (?:a |an |the )?(.+?)(?:\s+for\s|\s+that\s|\s+specializ|\s*[,.]|\n)/i);
