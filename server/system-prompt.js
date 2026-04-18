@@ -1,6 +1,18 @@
 'use strict';
 
+const crypto = require('crypto');
 const { safeCountTokens } = require('./helpers');
+
+// Dedup key: md5(b2) prefix. Logged B2 prompts rarely change; Set growth is bounded in practice.
+const UNKNOWN_AGENT_SEEN = new Set();
+
+function logUnknownAgent(b2, key) {
+  const hash = crypto.createHash('md5').update(b2 || '').digest('hex').slice(0, 12);
+  if (UNKNOWN_AGENT_SEEN.has(hash)) return;
+  UNKNOWN_AGENT_SEEN.add(hash);
+  const preview = (b2 || '').slice(0, 120).replace(/\s+/g, ' ').trim();
+  console.warn(`\x1b[33m[classify] new agent bucket key="${key}" — register in KNOWN_AGENTS? B2=${JSON.stringify(preview)}\x1b[0m`);
+}
 
 // ── System prompt diff helpers ───────────────────────────────────────
 
@@ -48,8 +60,11 @@ function extractAgentType(sys) {
   if (m) {
     const role = m[1].trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 30);
     const label = m[1].trim().replace(/\b\w/g, c => c.toUpperCase());
-    return { key: role || 'agent', label: label || 'Agent' };
+    const key = role || 'agent';
+    logUnknownAgent(b2, key);
+    return { key, label: label || 'Agent' };
   }
+  logUnknownAgent(b2, 'agent');
   return { key: 'agent', label: 'Agent' };
 }
 
@@ -170,4 +185,5 @@ module.exports = {
   splitB2IntoBlocks,
   computeBlockDiff,
   computeUnifiedDiff,
+  _resetUnknownAgentSeen: () => UNKNOWN_AGENT_SEEN.clear(),
 };

@@ -7,6 +7,7 @@ const {
   splitB2IntoBlocks,
   computeBlockDiff,
   computeUnifiedDiff,
+  _resetUnknownAgentSeen,
 } = require('../server/system-prompt');
 
 describe('system-prompt', () => {
@@ -98,6 +99,35 @@ describe('system-prompt', () => {
       const result = extractAgentType(sys);
       assert.equal(result.key, 'code-reviewer');
       assert.equal(result.label, 'Code Reviewer');
+    });
+
+    it('warns once per unique unknown agent (dedup)', () => {
+      _resetUnknownAgentSeen();
+      const originalWarn = console.warn;
+      const warnings = [];
+      console.warn = (msg) => warnings.push(msg);
+      try {
+        const sysA = [{ text: 'billing' }, { text: 'identity' },
+          { text: 'You are a database migration expert that handles schema changes' }];
+        const sysB = [{ text: 'billing' }, { text: 'identity' },
+          { text: 'You are a security auditor that reviews code for vulnerabilities' }];
+
+        extractAgentType(sysA);
+        extractAgentType(sysA);              // same B2 — dedup
+        extractAgentType(sysB);              // different B2 — new warn
+        extractAgentType(sysB);              // dedup
+
+        // Known agents should never warn
+        extractAgentType([{ text: 'b' }, { text: 'i' },
+          { text: 'You are an interactive agent' }]);
+
+        assert.equal(warnings.length, 2, `expected 2 warnings, got ${warnings.length}`);
+        assert.match(warnings[0], /database-migration-expert/);
+        assert.match(warnings[1], /security-auditor/);
+      } finally {
+        console.warn = originalWarn;
+        _resetUnknownAgentSeen();
+      }
     });
   });
 
