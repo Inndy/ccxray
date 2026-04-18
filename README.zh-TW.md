@@ -5,6 +5,7 @@
 AI 代理工作階段的透視鏡。零設定的 HTTP 代理，記錄 Claude Code 與 Anthropic API 之間的每一次呼叫，搭配即時儀表板，讓你看清代理內部到底在做什麼。
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
+[![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
 ![ccxray 儀表板](https://raw.githubusercontent.com/lis186/ccxray/main/docs/dashboard.png)
 
@@ -67,7 +68,7 @@ Connected clients (2):
 
 ### 時間軸
 
-即時觀看代理的思考過程。每個回合拆解為思考區塊（含時長）、tool call 內聯預覽、助手回應。
+即時觀看代理的思考過程。每個回合渲染成五層資訊卡：第 1 行 cost、cache 熱度（含 turn 間空檔時間，及時抓出 cache miss）、tool 失敗風險訊號、`hit:0%` 紅色警示、tools 列前置於標題上方。整場 session 的健康狀態一眼掃完，不必展開任何卡片。
 
 ![時間軸檢視](https://raw.githubusercontent.com/lis186/ccxray/main/docs/timeline.png)
 
@@ -79,9 +80,15 @@ Connected clients (2):
 
 ### System Prompt 追蹤
 
-自動偵測版本變更，內建 diff 檢視器。瀏覽所有 agent 類型的 system prompt — 主 agent、子 agent（Explore、Web Search 等）— 精確掌握每次更新的差異。
+自動偵測版本變更，內建 diff 檢視器。瀏覽 12 種已辨識的 agent 類型 — Orchestrator、General Purpose、Plan、Explore、Web Search、Codex Rescue、Claude Code Guide、Summarizer、Title Generator、Name Generator、Translator、SDK Agent — 精確掌握每次更新的差異。對 12,730 份真實捕捉的 prompts 做回溯驗證：被分類的項目 100% 正確，不確定的則誠實標為 `unknown`。
 
 ![System Prompt 追蹤](https://raw.githubusercontent.com/lis186/ccxray/main/docs/system-prompt.png)
+
+### 鍵盤導航
+
+整個儀表板都能用鍵盤操控。每個畫面底部都有情境感知的快捷鍵提示列，會隨你移動即時更新目前有效的按鍵。按 `?` 展開完整快捷鍵清單。從 projects → sessions → turns → sections → timeline → 個別 diff hunk，全程不用碰滑鼠。
+
+![鍵盤導航](https://raw.githubusercontent.com/lis186/ccxray/main/docs/keyboard.png)
 
 ### 其他功能
 

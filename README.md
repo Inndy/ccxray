@@ -5,6 +5,7 @@
 X-ray vision for AI agent sessions. A zero-config HTTP proxy that records every API call between Claude Code and Anthropic, with a real-time dashboard to inspect what's actually happening inside your agent.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
+[![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
 ![ccxray dashboard](https://raw.githubusercontent.com/lis186/ccxray/main/docs/dashboard.png)
 
@@ -67,7 +68,7 @@ Use `--port` to opt out and run an independent server instead.
 
 ### Timeline
 
-Watch your agent think in real-time. Every turn broken down into thinking blocks (with duration), tool calls with inline previews, and assistant responses.
+Watch your agent think in real-time. Every turn renders as a five-line card: cost on line 1, cache warmth (with inter-turn gap timing to catch cache misses), tool-fail risk, `hit:0%` red warnings, and tools surfaced above the title. Scan a whole session's health without expanding a single card.
 
 ![Timeline view](https://raw.githubusercontent.com/lis186/ccxray/main/docs/timeline.png)
 
@@ -79,9 +80,15 @@ Track your real spending. Session heatmap, burn rate, ROI calculator — know ex
 
 ### System Prompt Tracking
 
-Automatic version detection with diff viewer. Browse system prompts across all agent types — main agent, subagents (Explore, Web Search, etc.) — and see exactly what changed between updates.
+Automatic version detection with diff viewer. Browse prompts across 12 recognized agent types — Orchestrator, General Purpose, Plan, Explore, Web Search, Codex Rescue, Claude Code Guide, Summarizer, Title Generator, Name Generator, Translator, SDK Agent — and see exactly what changed between updates. Precision-verified against 12,730 captured prompts: 100% of classifications are correct, uncertain prompts are honestly marked `unknown`.
 
 ![System prompt tracking](https://raw.githubusercontent.com/lis186/ccxray/main/docs/system-prompt.png)
+
+### Keyboard-first Navigation
+
+Drive the whole dashboard with your keyboard. Every screen shows a context-sensitive hint bar at the bottom — the currently valid shortcuts, live-updated as you move. Press `?` for the full cheatsheet. Navigate projects → sessions → turns → sections → timeline → individual diff hunks without touching the mouse.
+
+![Keyboard navigation](https://raw.githubusercontent.com/lis186/ccxray/main/docs/keyboard.png)
 
 ### More
 

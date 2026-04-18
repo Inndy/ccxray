@@ -5,6 +5,7 @@
 AIエージェントセッションのX線ビュー。ゼロ設定のHTTPプロキシで、Claude CodeとAnthropic API間のすべてのAPI呼び出しを記録し、エージェント内部で実際に何が起きているかを確認できるリアルタイムダッシュボードを提供します。
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
+[![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 
 ![ccxrayダッシュボード](https://raw.githubusercontent.com/lis186/ccxray/main/docs/dashboard.png)
 
@@ -67,7 +68,7 @@ Connected clients (2):
 
 ### タイムライン
 
-エージェントの思考をリアルタイムで観察。各ターンを思考ブロック（所要時間付き）、ツール呼び出しのインラインプレビュー、アシスタント応答に分解します。
+エージェントの思考をリアルタイムで観察。各ターンは 5 行カードとして表示されます: 1 行目にコスト、キャッシュ温度（ターン間のギャップ時間付きでキャッシュミスを即座に検出）、ツール失敗リスクシグナル、`hit:0%` の赤警告、ツール一覧をタイトル上に配置。カードを開かずにセッション全体の健全性を一望できます。
 
 ![タイムラインビュー](https://raw.githubusercontent.com/lis186/ccxray/main/docs/timeline.png)
 
@@ -79,9 +80,15 @@ Connected clients (2):
 
 ### システムプロンプト追跡
 
-バージョンの自動検出とdiffビューア。すべてのエージェントタイプ — メインエージェント、サブエージェント（Explore、Web Searchなど）— のシステムプロンプトを閲覧し、更新ごとの変更点を正確に把握できます。
+バージョンの自動検出とdiffビューア。認識された 12 種類のエージェント — Orchestrator、General Purpose、Plan、Explore、Web Search、Codex Rescue、Claude Code Guide、Summarizer、Title Generator、Name Generator、Translator、SDK Agent — のプロンプトを閲覧し、更新ごとの変更点を正確に把握できます。実際に捕捉した 12,730 件のプロンプトで精度検証済み: 分類されたものは 100% 正確、判定できないものは `unknown` として正直に表示します。
 
 ![システムプロンプト追跡](https://raw.githubusercontent.com/lis186/ccxray/main/docs/system-prompt.png)
+
+### キーボード操作
+
+ダッシュボード全体をキーボードで操作可能。すべての画面下部に文脈対応のヒントバーが表示され、現在有効なショートカットが移動に合わせてリアルタイムで更新されます。`?` で完全なチートシートを展開。projects → sessions → turns → sections → timeline → 個別の diff hunk まで、マウスに触れずにナビゲート。
+
+![キーボード操作](https://raw.githubusercontent.com/lis186/ccxray/main/docs/keyboard.png)
 
 ### その他
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.6.0
+
+### Added
+
+- **Turn Card 5-layer redesign**: Each timeline entry now shows a five-line card with cost on line 1, cache warmth + inter-turn gap timing, tool-fail risk signal, `hit:0%` red warning, and tools surfaced above the title. Scan a whole session's health without expanding detail.
+- **Agent classification overhaul**: Plan, codex-rescue, claude-code-guide, summarizer, translator, and sdk-agent are now recognised as distinct agents. Classification precision 97.3% → 100.0% against 12,730 real captured prompts; items that can't be identified with confidence are honestly marked `unknown` instead of being bucketed into `claude-code`.
+- **Unknown agent detection**: When Anthropic ships a new sub-agent that ccxray doesn't recognize, the terminal prints a one-time hint showing the prompt's opening so the new agent surfaces immediately instead of silently getting dumped into a catch-all bucket.
+- **Keyboard-first navigation with live hint bar**: Every screen now shows a context-sensitive bottom bar listing the currently valid shortcuts — live-updated as you move between columns, sessions, turns, and diff hunks. Press `?` for the full cheatsheet. Also added: cmd-bar navigation, auto-select first project on page load, initial cascade (dashboard opens directly on timeline), unified Agents/Versions focus in System Prompt panel. Full keyboard flow from project list to individual diff hunks.
+
+### Changed
+
+- **Main agent renamed `claude-code` → `orchestrator`**: The interactive agent that dispatches to sub-agents is now labelled **Orchestrator** — separating the agent role from the CLI product name. UI defaults, API defaults (`/_api/sysprompt/diff`), and test assertions updated. `versionIndex` is in-memory only so no migration is needed; new keys take effect on hub restart.
+
+### Fixed
+
+- **Sub-agents no longer mis-labelled as Claude Code**: Previously, Plan / Codex Rescue / Summarizer / Claude Code Guide sessions were silently grouped with the main "Claude Code" agent because detection relied on a branding line that every sub-agent shares. They now classify into their own buckets with separate version histories and diffs. Claude Agent SDK callers also surface as a distinct `sdk-agent` class.
+
 ## 1.5.0
 
 ### Added
