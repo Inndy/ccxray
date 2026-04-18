@@ -20,7 +20,7 @@ const SHARED_DIR = path.join(os.homedir(), '.ccxray', 'logs', 'shared');
 // Order matters; first match wins. This is the ground-truth definition,
 // independent of the algorithm under test.
 const TRUTH_TABLE = [
-  { prefix: 'You are an interactive agent',                         key: 'claude-code' },
+  { prefix: 'You are an interactive agent',                         key: 'orchestrator' },
   { prefix: "You are an agent for Claude Code",                     key: 'general-purpose' },
   { prefix: 'You are a file search specialist',                     key: 'explore' },
   { prefix: 'You are an assistant for performing a web search',     key: 'web-search' },
@@ -41,7 +41,7 @@ function truthLabel(sys) {
     for (const t of TRUTH_TABLE) if (b2.startsWith(t.prefix)) return t.key;
     return 'unknown';
   }
-  if (b1.startsWith('You are Claude Code')) return 'claude-code';
+  if (b1.startsWith('You are Claude Code')) return 'orchestrator';
   if (b1.startsWith('You are a Claude agent, built on Anthropic')) return 'sdk-agent';
   return 'unknown';
 }

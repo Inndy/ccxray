@@ -9,7 +9,7 @@ let spFocusedCol = 'agents'; // 'agents' | 'versions'
 let hideMinorEdit = false;
 let currentHunkIdx = 0;
 
-const AGENT_ORDER = ['claude-code', 'general-purpose', 'explore', 'web-search', 'title-generator', 'name-generator'];
+const AGENT_ORDER = ['orchestrator', 'general-purpose', 'plan', 'explore', 'web-search', 'codex-rescue', 'claude-code-guide', 'summarizer', 'title-generator', 'name-generator', 'translator', 'sdk-agent'];
 
 function spRelativeTime(dateStr) {
   if (!dateStr) return '';

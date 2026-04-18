@@ -12,7 +12,7 @@ const BLOCK_OWNERS_SERVER = {
 
 // Known agent types by b2 prefix. Order matters — first match wins.
 const KNOWN_AGENTS = [
-  { prefix: 'You are an interactive agent',                key: 'claude-code',       label: 'Claude Code' },
+  { prefix: 'You are an interactive agent',                key: 'orchestrator',      label: 'Orchestrator' },
   { prefix: 'You are an agent for Claude Code',            key: 'general-purpose',   label: 'General Purpose' },
   { prefix: 'You are a file search specialist',            key: 'explore',           label: 'Explore' },
   { prefix: 'You are an assistant for performing a web',   key: 'web-search',        label: 'Web Search' },
@@ -39,7 +39,7 @@ function extractAgentType(sys) {
   // Current Claude Code keeps B1 = "You are Claude Code…" branding for every
   // sub-agent, so B1 is NOT a reliable signal when B2 has content.
   if (!b2) {
-    if (b1.startsWith('You are Claude Code')) return { key: 'claude-code', label: 'Claude Code' };
+    if (b1.startsWith('You are Claude Code')) return { key: 'orchestrator', label: 'Orchestrator' };
     if (b1.startsWith('You are a Claude agent, built on Anthropic')) return { key: 'sdk-agent', label: 'SDK Agent' };
   }
 

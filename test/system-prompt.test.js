@@ -16,13 +16,13 @@ describe('system-prompt', () => {
       assert.deepEqual(extractAgentType([]), { key: 'unknown', label: 'Unknown' });
     });
 
-    it('detects Claude Code from b2', () => {
+    it('detects orchestrator from b2', () => {
       const sys = [
         { text: 'billing' },
         { text: 'identity' },
         { text: 'You are an interactive agent that helps users' },
       ];
-      assert.equal(extractAgentType(sys).key, 'claude-code');
+      assert.equal(extractAgentType(sys).key, 'orchestrator');
     });
 
     it('uses b1 identity only when b2 is empty', () => {
@@ -33,7 +33,7 @@ describe('system-prompt', () => {
         { text: 'You are Claude Code, ...' },
         { text: '' },
       ];
-      assert.equal(extractAgentType(shortForm).key, 'claude-code');
+      assert.equal(extractAgentType(shortForm).key, 'orchestrator');
 
       const sdkShortForm = [
         { text: 'billing' },
@@ -49,7 +49,7 @@ describe('system-prompt', () => {
         { text: 'You are Claude Code, ...' },
         { text: 'Some other text' },
       ];
-      assert.notEqual(extractAgentType(subAgent).key, 'claude-code');
+      assert.notEqual(extractAgentType(subAgent).key, 'orchestrator');
     });
 
     it('detects general-purpose subagent', () => {
