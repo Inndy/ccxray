@@ -203,6 +203,12 @@
   }
   .si-ctx-bar.over-compact::before { background: var(--red); }
   .si-ctx-bar.over-compact::after { background: var(--red); opacity: 1; }
+  .si-cache { font-size: 10px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .si-cache.cache-far { color: var(--dim); }
+  .si-cache.cache-near { color: var(--yellow); }
+  .si-cache.cache-close { color: var(--red); animation: cachePulse 1s ease-in-out infinite; }
+  .si-cache.cache-expired { color: var(--dim); opacity: 0.55; font-style: italic; }
+  @keyframes cachePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
   .launch-btn { background: none; border: 1px solid var(--border); color: var(--green); width: 18px; height: 18px; border-radius: 50%; cursor: pointer; font-size: 10px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
   .launch-btn:hover { background: var(--green); color: #000; border-color: var(--green); }
   .pin-btn { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 11px; padding: 0 2px; opacity: 0.3; transition: opacity 0.15s, color 0.15s; margin-left: auto; flex-shrink: 0; }

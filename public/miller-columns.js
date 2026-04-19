@@ -430,6 +430,23 @@ function renderSessionItem(sess, sid) {
       ' style="--pct:' + Math.min(100, ctxPct).toFixed(1) + '%;--compact:' + compactPct + '%"' +
       ' title="ctx ' + ctxPct.toFixed(1) + '% · auto-compact at ~' + compactPct.toFixed(1) + '%"></div>'
     : '';
+  // Cache TTL countdown row; only rendered if we have both a response time and
+  // a ttl-capable plan loaded (otherwise skip — api-key users with ttl=300_000
+  // still get a valid countdown, but undefined settings → skip).
+  const cacheTtlMs = window.ccxraySettings?.cacheTtlMs;
+  const cacheFmt = window.ccxrayFormatCacheCountdown;
+  // Only render for sessions whose cache is still alive — historical sessions
+  // omit the row entirely to avoid noisy "cache expired" lines on every old card.
+  let cacheRowHtml = '';
+  if (sess.lastReceivedAt && cacheTtlMs && cacheFmt) {
+    const info = cacheFmt(sess.lastReceivedAt, cacheTtlMs);
+    if (info.active) {
+      cacheRowHtml = '<div class="' + info.cls + '" data-active="1"' +
+        ' data-last-at="' + sess.lastReceivedAt + '" data-cache-ttl-ms="' + cacheTtlMs +
+        '" title="Cache TTL: ' + (cacheTtlMs / 60000) + 'm (' + (window.ccxraySettings.label || 'plan') + ')">' +
+        info.text + '</div>';
+    }
+  }
   const isOnline = getStatusClass(sid) !== 'sdot-off';
   const isArmed = interceptSessionIds.has(sid);
   const isHeld = currentPending && currentPending.sessionId === sid;
@@ -449,7 +466,8 @@ function renderSessionItem(sess, sid) {
     '<div class="si-row2">' + escapeHtml(shortModel) + ' · ' + sess.count + 't · <span class="si-cost">' + escapeHtml(costStr) + '</span></div>' +
     toolRow +
     '<div class="si-row3"><span title="' + escapeHtml(sess.lastId ? formatEntryDate(sess.lastId) : '') + '">' + dateStr + '</span>' + ctxAlertHtml + '</div>' +
-    ctxBarHtml;
+    ctxBarHtml +
+    cacheRowHtml;
 }
 
 function renderProjectsCol() {

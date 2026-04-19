@@ -243,6 +243,7 @@ function addEntry(e) {
   // Update cwd if not yet known or was only a quota-check
   if (entryCwd && (!sess.cwd || sess.cwd === '(quota-check)')) sess.cwd = entryCwd;
   sess.lastId = entryId;
+  if (e.receivedAt) sess.lastReceivedAt = Number(e.receivedAt);
   const isSubagent = e.isSubagent || false;
   sess.count++; // total (shown in session item as "Nt")
   if (isSubagent) sess.subCount++;
