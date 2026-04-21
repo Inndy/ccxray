@@ -919,7 +919,11 @@ function renderBreadcrumb() {
   segments.push({ label: 'root', action: () => selectProject(null) });
   const projName = selectedProjectName || (selectedSessionId && sessionsMap.get(selectedSessionId) && getProjectName(sessionsMap.get(selectedSessionId).cwd));
   if (projName) segments.push({ label: projName, action: () => { selectProject(projName); } });
-  if (selectedSessionId) segments.push({ label: 'session:' + selectedSessionId.slice(0, 8), action: () => { selectSessionAndLatestTurn(selectedSessionId); } });
+  if (selectedSessionId) {
+    const bcSess = sessionsMap.get(selectedSessionId);
+    const bcLabel = 'session: ' + formatSessionLabel(bcSess, selectedSessionId);
+    segments.push({ label: bcLabel, action: () => { selectSessionAndLatestTurn(selectedSessionId); } });
+  }
   if (selectedTurnIdx >= 0) {
     const e = allEntries[selectedTurnIdx];
     const sessEl = e ? colTurns.querySelector('.turn-item[data-entry-idx="' + selectedTurnIdx + '"]') : null;

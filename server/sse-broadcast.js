@@ -66,6 +66,40 @@ function broadcastInterceptRemoved(requestId) {
   for (const res of store.sseClients) res.write(`data: ${data}\n\n`);
 }
 
+// Per-session debounced title-update broadcast. Bursts within the window
+// collapse to one outgoing event carrying whatever store.getSessionTitle
+// returns at flush time (monotonic guard already applied).
+const TITLE_DEBOUNCE_MS = 3000;
+const titleDebounceTimers = new Map();
+
+function flushSessionTitleUpdate(sessionId) {
+  titleDebounceTimers.delete(sessionId);
+  const title = store.getSessionTitle(sessionId);
+  if (!title) return;
+  const titleReqTs = store.sessionMeta[sessionId]?.titleReqTs || null;
+  const data = JSON.stringify({ _type: 'session_title_update', sessionId, title, titleReqTs });
+  for (const res of store.sseClients) res.write(`data: ${data}\n\n`);
+}
+
+function broadcastSessionTitleUpdate(sessionId, { immediate = false } = {}) {
+  if (!sessionId) return;
+  if (immediate) {
+    const timer = titleDebounceTimers.get(sessionId);
+    if (timer) { clearTimeout(timer); titleDebounceTimers.delete(sessionId); }
+    flushSessionTitleUpdate(sessionId);
+    return;
+  }
+  if (titleDebounceTimers.has(sessionId)) return;
+  const timer = setTimeout(() => flushSessionTitleUpdate(sessionId), TITLE_DEBOUNCE_MS);
+  if (timer.unref) timer.unref();
+  titleDebounceTimers.set(sessionId, timer);
+}
+
+function _resetTitleDebounce() {
+  for (const t of titleDebounceTimers.values()) clearTimeout(t);
+  titleDebounceTimers.clear();
+}
+
 module.exports = {
   summarizeEntry,
   broadcast,
@@ -73,4 +107,7 @@ module.exports = {
   broadcastPendingRequest,
   broadcastInterceptToggle,
   broadcastInterceptRemoved,
+  broadcastSessionTitleUpdate,
+  TITLE_DEBOUNCE_MS,
+  _resetTitleDebounce,
 };

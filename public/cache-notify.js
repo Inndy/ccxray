@@ -106,7 +106,7 @@ function fireNotification(sid, minsLeft) {
   const plan = window.ccxraySettings?.label || 'plan';
   try {
     const n = new Notification('ccxray · cache expiring', {
-      body: `Session ${sid.slice(0, 8)} · ${plan} · ~${minsLeft} min left\nSend a prompt to refresh, or let it expire.`,
+      body: `Session ${formatSessionLabel(sessionsMap.get(sid), sid)} · ${plan} · ~${minsLeft} min left\nSend a prompt to refresh, or let it expire.`,
       tag: 'ccxray-cache-' + sid,
       silent: false,
     });

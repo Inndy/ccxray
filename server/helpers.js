@@ -331,20 +331,63 @@ function parseSSEEvents(raw) {
 }
 
 // ── Turn title extraction ─────────────────────────────────────────
-function extractResponseTitle(res) {
-  if (!res) return null;
-  let text = '';
+const TITLE_MAX_LEN = 200;
+const TITLE_JSON_REGEX = /"title"\s*:\s*"((?:[^"\\]|\\.)*?)(?:"|$)/;
+
+// Concatenate text from either a parsed SSE-event array, a response body
+// with content blocks, or a raw string. Returns '' if nothing found.
+function collectResponseText(res) {
+  if (!res) return '';
   if (Array.isArray(res)) {
-    text = res
-      .filter(ev => ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta')
-      .map(ev => ev.delta.text).join('');
-  } else if (res.content) {
-    text = (res.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    let out = '';
+    for (const ev of res) {
+      if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+        out += ev.delta.text;
+      }
+    }
+    return out;
   }
-  text = text.trim().replace(/\s+/g, ' ');
+  if (typeof res === 'string') return res;
+  if (Array.isArray(res.content)) {
+    return res.content.filter(b => b?.type === 'text').map(b => b.text).join('');
+  }
+  return '';
+}
+
+function extractResponseTitle(res) {
+  const text = collectResponseText(res).trim().replace(/\s+/g, ' ');
   if (!text) return null;
   const firstSentence = text.split(/[.\n]/)[0].trim();
   return (firstSentence || text).slice(0, 80) || null;
+}
+
+// Claude Code's title-generator subagent wraps its output as {"title": "..."}.
+// Parse defensively: JSON first, regex second, nothing else.
+function extractTitleGenPayload(res) {
+  if (process.env.CCXRAY_DISABLE_TITLES === '1') return null;
+  const text = collectResponseText(res).trim();
+  if (!text) return null;
+
+  if (text[0] === '{') {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.title === 'string') {
+        const t = parsed.title.trim();
+        return t ? t.slice(0, TITLE_MAX_LEN) : null;
+      }
+    } catch { /* fall through to regex for truncated / malformed streams */ }
+  }
+
+  const m = text.match(TITLE_JSON_REGEX);
+  if (m && m[1]) {
+    const unescaped = m[1]
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+      .replace(/\\n/g, ' ')
+      .trim();
+    return unescaped ? unescaped.slice(0, TITLE_MAX_LEN) : null;
+  }
+  return null;
 }
 
 // Extract pure text from a message's content blocks (ignores tool_result, tool_use, etc.)
@@ -575,6 +618,7 @@ module.exports = {
   computeThinkingDuration,
   parseSSEEvents,
   extractResponseTitle,
+  extractTitleGenPayload,
   extractLastUserText,
   extractToolResultSummary,
   extractFirstUserText,

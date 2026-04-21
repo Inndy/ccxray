@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Sessions column shows Claude Code's generated title.** Each session card now displays the human-readable title from Claude Code's title-generator subagent (e.g. `Fix login button on mobile`) instead of the 8-character hash. Card wraps to at most two lines; the short hash moves to the hover tooltip and is still accessible via the copy button and URL deep-link (`?s=`). Breadcrumb and intercept overlay follow the same rule. Sessions without a title (direct-api traffic, legacy sessions, title-gen still in flight) fall back to the short hash exactly as before.
+- **Title-gen JSON parsing fix.** `extractResponseTitle` previously returned the raw JSON envelope (`{"title":"..."}`) for title-generator responses. New `extractTitleGenPayload` helper parses defensively — JSON first, regex fallback for truncated streams, null on total failure.
+- **Attribution model for sessionless sub-agent calls.** Title-generator requests carry no `session_id` in metadata. ccxray now matches them to their parent session by temporal proximity (inflight session started within 1s) confirmed by content equality (first user message equals the title-gen request body). Ambiguous matches — e.g. two concurrent sessions with byte-identical first messages — are discarded rather than guessed.
+- **Title persistence across restart.** The existing `index.ndjson` per-turn title column is reused: title-gen entries now store the extracted clean title, and `restore.js` replays them onto `sess.title` on startup with zero extra I/O.
+- **Kill switch.** Set `CCXRAY_DISABLE_TITLES=1` to disable title extraction entirely — every session falls back to the short hash.
+
+Full decision trail and tests: [`openspec/changes/session-title-display/`](openspec/changes/session-title-display/).
+
 ## 1.6.0
 
 ### Breaking

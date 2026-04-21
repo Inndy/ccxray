@@ -32,8 +32,12 @@ function computeSettings() {
 
 function handleApiRoutes(clientReq, clientRes) {
   if (clientReq.url === '/_api/entries') {
+    const entries = store.entries.map(summarizeEntry);
+    const sessionTitles = Object.fromEntries(
+      Object.entries(store.sessionMeta).filter(([, m]) => m.title).map(([sid, m]) => [sid, m.title])
+    );
     clientRes.writeHead(200, { 'Content-Type': 'application/json' });
-    clientRes.end(JSON.stringify(store.entries.map(summarizeEntry)));
+    clientRes.end(JSON.stringify({ entries, sessionTitles }));
     return true;
   }
 

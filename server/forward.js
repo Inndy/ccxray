@@ -6,8 +6,24 @@ const config = require('./config');
 const store = require('./store');
 const { calculateCost } = require('./pricing');
 const helpers = require('./helpers');
-const { broadcast, broadcastSessionStatus } = require('./sse-broadcast');
+const { broadcast, broadcastSessionStatus, broadcastSessionTitleUpdate } = require('./sse-broadcast');
 const { appendSample, collectRatelimitHeaders } = require('./ratelimit-log');
+
+// For title-generator subagent responses, extract the clean title from the
+// JSON payload and (when attribution succeeds) stamp it onto the parent
+// session. Returns the clean title string or null.
+// Gate on response shape, not request agent type: title-gen requests can arrive
+// without a system prompt so system-based detection is unreliable.
+function resolveTitleGenTitle(parsedBody, resPayload, receivedAt) {
+  const clean = helpers.extractTitleGenPayload(resPayload);
+  if (!clean) return null;
+  if (store.extractCwd(parsedBody)) return null; // main orchestrator, not a subagent
+  const parentSid = store.attributeTitleGen(parsedBody, receivedAt);
+  if (parentSid && store.setSessionTitle(parentSid, clean, receivedAt)) {
+    broadcastSessionTitleUpdate(parentSid);
+  }
+  return clean;
+}
 
 // ── Strip injected proxy stats from conversation history ─────────────
 const STATS_PATTERN = /\n\n---\n📊 Context: .+$/s;
@@ -244,11 +260,13 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
     const costInfo = calculateCost(usage, parsedBody?.model);
     const maxContext = config.getMaxContext(parsedBody?.model, parsedBody?.system);
     const isSubagent = !store.extractCwd(parsedBody);
-    const title = (isSubagent
-      ? helpers.extractFirstUserText(parsedBody)
-      : (helpers.extractResponseTitle(events)
-         || helpers.extractLastUserText(parsedBody)
-         || helpers.extractToolResultSummary(parsedBody)))
+    const titleGenTitle = resolveTitleGenTitle(parsedBody, events, startTime);
+    const title = titleGenTitle
+      || (isSubagent
+        ? helpers.extractFirstUserText(parsedBody)
+        : (helpers.extractResponseTitle(events)
+           || helpers.extractLastUserText(parsedBody)
+           || helpers.extractToolResultSummary(parsedBody)))
       || null;
     const toolFail = helpers.hasToolFail(parsedBody);
     const thinkingDuration = helpers.computeThinkingDuration(events);
@@ -356,11 +374,13 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
     const sessionId = reqSessionId;
     const maxContext = config.getMaxContext(parsedBody?.model, parsedBody?.system);
     const isSubagent = !store.extractCwd(parsedBody);
-    const title = (isSubagent
-      ? helpers.extractFirstUserText(parsedBody)
-      : (helpers.extractResponseTitle(resData)
-         || helpers.extractLastUserText(parsedBody)
-         || helpers.extractToolResultSummary(parsedBody)))
+    const titleGenTitle = resolveTitleGenTitle(parsedBody, resData, startTime);
+    const title = titleGenTitle
+      || (isSubagent
+        ? helpers.extractFirstUserText(parsedBody)
+        : (helpers.extractResponseTitle(resData)
+           || helpers.extractLastUserText(parsedBody)
+           || helpers.extractToolResultSummary(parsedBody)))
       || null;
     const toolFail = helpers.hasToolFail(parsedBody);
     const stopReason = resData?.stop_reason || '';
