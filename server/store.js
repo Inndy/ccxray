@@ -172,7 +172,13 @@ function detectSession(req) {
     return { sessionId: currentSessionId || 'direct-api', isNewSession: false, inferred: true };
   }
 
-  // Non-subagent without session_id: original heuristic
+  // Non-subagent without session_id: try parent attribution before creating a phantom
+  // session. Title-gen and other internal requests that don't pass isLikelySubagent
+  // (e.g. due to message count) still belong to an existing session when one is active.
+  const parent = inferParentSession();
+  if (parent) return { sessionId: parent, isNewSession: false, inferred: true };
+
+  // True fallback: no active session within 30s → genuine new direct-api session.
   const isNew = !currentSessionId || (req?.messages?.length || 0) < lastMsgCount;
   if (isNew) {
     sessionCounter++;

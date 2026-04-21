@@ -126,7 +126,7 @@ describe('store', () => {
       assert.equal(r.isNewSession, false);
     });
 
-    it('does not treat request with tools as subagent', () => {
+    it('attributes non-subagent (with tools) to active session instead of creating phantom', () => {
       const store = require('../server/store');
       resetSessionState(store);
 
@@ -134,18 +134,18 @@ describe('store', () => {
       store.sessionMeta['aaa-111'] = { cwd: '/a', lastSeenAt: Date.now() };
       store.activeRequests['aaa-111'] = 1;
 
-      // Request with tools → not a bare subagent, goes through normal path
+      // Request with tools → not a bare subagent, but active session exists within 30s.
+      // Should be attributed to aaa-111 rather than creating a phantom direct-api session.
       const reqWithTools = {
         messages: [{ role: 'user', content: 'hi' }],
         tools: [{ name: 'Read' }],
       };
       const r = store.detectSession(reqWithTools);
-      // Should go through normal heuristic, not subagent path
-      // Since msg=1 < lastMsgCount=5, it will create new session
-      assert.equal(r.isNewSession, true);
+      assert.equal(r.isNewSession, false);
+      assert.equal(r.sessionId, 'aaa-111');
     });
 
-    it('does not treat request with custom metadata as subagent', () => {
+    it('attributes non-subagent with metadata to active session instead of creating phantom', () => {
       const store = require('../server/store');
       resetSessionState(store);
 
@@ -153,13 +153,14 @@ describe('store', () => {
       store.sessionMeta['aaa-111'] = { cwd: '/a', lastSeenAt: Date.now() };
       store.activeRequests['aaa-111'] = 1;
 
-      // Request with custom metadata → genuine API caller
+      // Request with custom metadata → fails isLikelySubagent, but active session exists.
+      // Should be attributed to aaa-111 rather than creating a phantom direct-api session.
       const r = store.detectSession({
         metadata: { user_id: 'custom-app-v1' },
         messages: [{ role: 'user', content: 'hello' }],
       });
-      // Metadata has user_id but no session_id pattern → normal path
-      assert.equal(r.isNewSession, true);
+      assert.equal(r.isNewSession, false);
+      assert.equal(r.sessionId, 'aaa-111');
     });
 
     it('never pollutes currentSessionId from subagent path', () => {
