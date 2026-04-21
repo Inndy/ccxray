@@ -94,8 +94,23 @@ async function restoreFromLogs() {
 
   // 3. Build version index from shared/ system prompts (scans a handful of small files)
   console.time('restore:versions');
-  await buildVersionIndex();
+  const sysHashToAgentKey = await buildVersionIndex();
   console.timeEnd('restore:versions');
+
+  // 4. Replay title-generator entries onto sess.title using the existing `title` column.
+  // Legacy entries (written before the title-gen JSON fix) stored verbatim user text —
+  // heuristic filter skips them: JSON-shaped, multi-line, or over the cap.
+  console.time('restore:titles');
+  if (sysHashToAgentKey && process.env.CCXRAY_DISABLE_TITLES !== '1') {
+    for (const entry of store.entries) {
+      if (!entry.sessionId || !entry.sysHash || !entry.title) continue;
+      if (sysHashToAgentKey.get(entry.sysHash) !== 'title-generator') continue;
+      const t = entry.title;
+      if (t[0] === '{' || t.includes('\n') || t.length > 200) continue;
+      store.setSessionTitle(entry.sessionId, t, entry.receivedAt || 0);
+    }
+  }
+  console.timeEnd('restore:titles');
 
   console.timeEnd('restore:total');
   if (restored) {
@@ -108,7 +123,8 @@ async function restoreFromLogs() {
 
 async function buildVersionIndex() {
   let sharedFiles;
-  try { sharedFiles = await config.storage.listShared(); } catch { return; }
+  try { sharedFiles = await config.storage.listShared(); } catch { return null; }
+  const sysHashToAgentKey = new Map();
 
   for (const filename of sharedFiles) {
     if (!filename.startsWith('sys_')) continue;
@@ -120,6 +136,8 @@ async function buildVersionIndex() {
       const m = b0.match(/cc_version=(\S+?)[; ]/);
       const ver = m ? m[1] : null;
       const { key: agentKey, label: agentLabel } = extractAgentType(sys);
+      const sysHash = filename.replace(/^sys_/, '').replace(/\.json$/, '');
+      if (sysHash && agentKey) sysHashToAgentKey.set(sysHash, agentKey);
       if (ver && b2.length >= 500) {
         const coreText = splitB2IntoBlocks(b2).coreInstructions || '';
         const coreLen = coreText.length;
@@ -141,6 +159,7 @@ async function buildVersionIndex() {
       }
     } catch {}
   }
+  return sysHashToAgentKey;
 }
 
 module.exports = { loadEntryReqRes, restoreFromLogs };

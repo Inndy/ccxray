@@ -227,7 +227,7 @@ function addEntry(e) {
   const entryCwd = e.cwd || null;
   if (!sessionsMap.has(sid)) {
     const shortSid = sid.slice(0, 8);
-    sessionsMap.set(sid, { id: sid, firstTs: e.ts, firstId: entryId, lastId: entryId, count: 0, mainCount: 0, subCount: 0, model, totalCost: 0, cwd: entryCwd });
+    sessionsMap.set(sid, { id: sid, firstTs: e.ts, firstId: entryId, lastId: entryId, count: 0, mainCount: 0, subCount: 0, model, totalCost: 0, cwd: entryCwd, title: null, titleReqTs: 0 });
     const sessEl = document.createElement('div');
     sessEl.className = 'session-item';
     sessEl.dataset.sessionId = sid;
@@ -477,6 +477,17 @@ evtSource.onmessage = (ev) => {
       renderProjectsCol();
       applySessionFilter();
       updateTopbarStatus();
+    } else if (data._type === 'session_title_update') {
+      const sid = data.sessionId;
+      const sess = sessionsMap.get(sid);
+      const nextTs = data.titleReqTs || 0;
+      if (sess && data.title && nextTs >= (sess.titleReqTs || 0)) {
+        sess.title = data.title;
+        sess.titleReqTs = nextTs;
+        const sessEl = document.getElementById('sess-' + sid.slice(0, 8));
+        if (sessEl) sessEl.innerHTML = renderSessionItem(sess, sid);
+        if (typeof renderBreadcrumb === 'function') renderBreadcrumb();
+      }
     } else {
       addEntry(data);
     }
@@ -622,7 +633,15 @@ function _showDeepLinkFailures(failures) {
 // Load existing entries (suppress auto-scroll during batch load)
 var _loading = true;
 fetch('/_api/entries').then(r => r.json()).then(data => {
-  data.forEach(addEntry);
+  const { entries = [], sessionTitles = {} } = data;
+  entries.forEach(addEntry);
+  for (const [sid, title] of Object.entries(sessionTitles)) {
+    const sess = sessionsMap.get(sid);
+    if (!sess) continue;
+    sess.title = title;
+    const el = document.getElementById('sess-' + sid.slice(0, 8));
+    if (el) el.innerHTML = renderSessionItem(sess, sid);
+  }
   _loading = false;
   expireSessionPins();
 

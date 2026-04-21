@@ -92,6 +92,63 @@ function inferParentSession() {
   return best;
 }
 
+// Extract the first user message text from a parsed request body.
+// Used as content-match anchor for title-gen attribution.
+function extractFirstUserMsgText(req) {
+  const first = req?.messages?.[0];
+  if (!first || first.role !== 'user') return null;
+  const c = first.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) {
+    const tb = c.find(b => b?.type === 'text' && typeof b.text === 'string');
+    return tb ? tb.text : null;
+  }
+  return null;
+}
+
+function recordFirstUserMsg(sid, req) {
+  if (!sid || sid === 'direct-api') return;
+  const meta = sessionMeta[sid] || (sessionMeta[sid] = {});
+  if (meta.firstUserMsg == null) {
+    const txt = extractFirstUserMsgText(req);
+    if (txt != null) meta.firstUserMsg = txt;
+  }
+}
+
+// Monotonic session-title setter. Returns true when the stored value changed.
+function setSessionTitle(sid, title, reqTs) {
+  if (!sid || !title || typeof title !== 'string') return false;
+  const meta = sessionMeta[sid] || (sessionMeta[sid] = {});
+  if (meta.titleReqTs && reqTs != null && reqTs <= meta.titleReqTs) return false;
+  if (meta.title === title) { meta.titleReqTs = reqTs || meta.titleReqTs; return false; }
+  meta.title = title;
+  meta.titleReqTs = reqTs || Date.now();
+  return true;
+}
+
+function getSessionTitle(sid) {
+  return sid ? (sessionMeta[sid]?.title || null) : null;
+}
+
+// Attribute a title-gen request to a parent session. Requires both temporal
+// (inflight session seen within last windowMs) AND content (first user msg
+// equals the title-gen request body) signals to agree. Returns null when
+// zero or more than one candidate matches.
+function attributeTitleGen(parsedBody, receivedAt, windowMs = 1000) {
+  const target = extractFirstUserMsgText(parsedBody);
+  if (target == null) return null;
+  const cutoff = (receivedAt || Date.now()) - windowMs;
+  const matches = [];
+  for (const [sid, meta] of Object.entries(sessionMeta)) {
+    if (sid === 'direct-api') continue;
+    if ((meta.lastSeenAt || 0) < cutoff) continue;
+    if ((activeRequests[sid] || 0) <= 0) continue;
+    if (meta.firstUserMsg !== target) continue;
+    matches.push(sid);
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function detectSession(req) {
   const realId = extractSessionId(req);
 
@@ -103,6 +160,7 @@ function detectSession(req) {
       currentSessionId = realId;
     }
     lastMsgCount = req?.messages?.length || 0;
+    recordFirstUserMsg(realId, req);
     return { sessionId: currentSessionId, isNewSession: isNew };
   }
 
@@ -163,4 +221,9 @@ module.exports = {
   extractSessionId,
   detectSession,
   printSessionBanner,
+  extractFirstUserMsgText,
+  recordFirstUserMsg,
+  setSessionTitle,
+  getSessionTitle,
+  attributeTitleGen,
 };

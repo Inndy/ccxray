@@ -1003,7 +1003,7 @@ describe('Store state consistency after errors', () => {
   });
 
   it('entries count is consistent after mixed success/error', async () => {
-    const entries = await httpGet(proxyPort, '/_api/entries');
+    const { entries } = await httpGet(proxyPort, '/_api/entries');
     // Should have entries from: init, trigger 500, after error (at least 3)
     assert.ok(entries.length >= 3, `Expected >= 3 entries, got ${entries.length}`);
   });

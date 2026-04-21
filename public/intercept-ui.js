@@ -31,7 +31,8 @@ function showInterceptOverlay() {
   const tools = body.tools || [];
   const model = body.model || '?';
   const sid = currentPending.sessionId;
-  const shortSid = sid ? sid.slice(0, 8) : '?';
+  const sessForLabel = sid ? sessionsMap.get(sid) : null;
+  const shortSid = sid ? formatSessionLabel(sessForLabel, sid) : '?';
 
   let msgCount = msgs.length;
   let toolCount = tools.length;
