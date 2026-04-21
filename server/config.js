@@ -18,7 +18,8 @@ function parseBaseUrl(rawUrl) {
     const protocol = u.protocol.replace(/:$/, ''); // 'https:' → 'https'
     const hostname = u.hostname;
     const port = u.port ? parseInt(u.port, 10) : (protocol === 'https' ? 443 : 80);
-    return { protocol, hostname, port };
+    const basePath = u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : '';
+    return { protocol, hostname, port, basePath };
   } catch {
     console.warn(`[ccxray] Warning: ANTHROPIC_BASE_URL is not a valid URL ("${rawUrl}"); falling back to api.anthropic.com`);
     return null;
@@ -36,26 +37,27 @@ function resolveUpstream(env, proxyPort) {
     if (missing.length > 0 && missing.length < 3) {
       console.warn(`[ccxray] Warning: partial ANTHROPIC_TEST_* override — ${missing.join(', ')} not set; resolved upstream: ${protocol}://${host}:${port}`);
     }
-    return { host, port, protocol, source: 'test-override' };
+    return { host, port, protocol, basePath: '', source: 'test-override' };
   }
 
   const parsed = parseBaseUrl(env.ANTHROPIC_BASE_URL);
   if (parsed) {
-    const { hostname: host, port, protocol } = parsed;
+    const { hostname: host, port, protocol, basePath } = parsed;
     if (new Set(['localhost', '127.0.0.1', '::1']).has(host) && port === proxyPort) {
       console.warn(`[ccxray] Warning: upstream ${protocol}://${host}:${port} points back at the proxy itself — requests will loop`);
     }
-    return { host, port, protocol, source: 'ANTHROPIC_BASE_URL' };
+    return { host, port, protocol, basePath, source: 'ANTHROPIC_BASE_URL' };
   }
 
-  return { host: 'api.anthropic.com', port: 443, protocol: 'https', source: 'default' };
+  return { host: 'api.anthropic.com', port: 443, protocol: 'https', basePath: '', source: 'default' };
 }
 
-const { host: ANTHROPIC_HOST, port: ANTHROPIC_PORT, protocol: ANTHROPIC_PROTOCOL, source: ANTHROPIC_BASE_URL_SOURCE } =
+const { host: ANTHROPIC_HOST, port: ANTHROPIC_PORT, protocol: ANTHROPIC_PROTOCOL, basePath: ANTHROPIC_BASE_PATH, source: ANTHROPIC_BASE_URL_SOURCE } =
   resolveUpstream(process.env, PORT);
 const LOGS_DIR = path.join(os.homedir(), '.ccxray', 'logs');
 const LEGACY_LOGS_DIR = path.join(__dirname, '..', 'logs');
 const RESTORE_DAYS = parseInt(process.env.RESTORE_DAYS || '3', 10);
+const REWRITE_MODEL_PREFIX = process.env.CCXRAY_MODEL_PREFIX || '';
 
 // Storage adapter (local by default, S3 via STORAGE_BACKEND=s3)
 const storage = createStorage();
@@ -129,9 +131,11 @@ module.exports = {
   ANTHROPIC_HOST,
   ANTHROPIC_PORT,
   ANTHROPIC_PROTOCOL,
+  ANTHROPIC_BASE_PATH,
   ANTHROPIC_BASE_URL_SOURCE,
   LOGS_DIR,
   RESTORE_DAYS,
+  REWRITE_MODEL_PREFIX,
   storage,
   MODEL_CONTEXT_FALLBACK,
   DEFAULT_CONTEXT,
