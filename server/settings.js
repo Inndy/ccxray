@@ -22,7 +22,7 @@ function readSettings()
 }
 
 function writeSettings(data) {
-  if (!fs.existsSync(SETTINGS_DIR)) fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+  fs.mkdirSync(SETTINGS_DIR, { recursive: true });
   fs.writeFile(SETTINGS_PATH, JSON.stringify(data, null, 2), () => {});
 }
 
