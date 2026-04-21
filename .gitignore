@@ -8,4 +8,5 @@ openspec/
 .specstory/
 .vscode/
 .claude/worktrees/
+.claude/settings.local.json
 reference/
