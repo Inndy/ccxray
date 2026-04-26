@@ -436,8 +436,10 @@
   .msg-badge-think        { background: var(--purple);  color: var(--bg); }
 
   /* ── Sysprompt Diff UI ── */
-  .sysprompt-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--accent); cursor: pointer; padding: 2px 5px; border: 1px solid var(--accent); border-radius: 3px; margin-bottom: 4px; }
-  .sysprompt-badge:hover { background: rgba(77,208,225,0.1); }
+  .section-item.has-subline { flex-direction: column; align-items: stretch; gap: 2px; }
+  .section-item.has-subline .si-main { display: flex; align-items: center; gap: 6px; }
+  .section-item .si-subline { text-align: right; padding-right: 13px; font-size: 10px; color: var(--dim); cursor: pointer; }
+  .section-item .si-subline:hover { color: var(--text); }
   .version-banner { background: var(--surface-hover); border-bottom: 1px solid var(--accent); padding: 6px 12px; font-size: 11px; color: var(--text); display: flex; align-items: center; gap: 8px; }
   .version-banner .vb-dot { color: var(--accent); }
   .version-banner .vb-ver { color: var(--purple); font-weight: bold; }

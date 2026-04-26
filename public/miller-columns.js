@@ -1193,12 +1193,10 @@ function renderSectionsCol(idx) {
   const skillCalls = e.reqLoaded ? countSkillInvocations(req.messages, tok.contextBreakdown?.loadedSkills) : {};
   const skillCount = Object.keys(skillCalls).length;
   const skillTotal = Object.values(skillCalls).reduce((s, n) => s + n, 0);
-  // Extract cc_version for system badge
+  // Extract cc_version — shown as a muted subline under "System"
   const ccVer = req.system && Array.isArray(req.system) && req.system[0]
     ? (req.system[0].text || '').match(/cc_version=(\S+?)[; ]/)?.[1] : null;
-  const sysVerBadge = ccVer
-    ? `<div class="sysprompt-badge" onclick="event.stopPropagation();openSystemPromptPanel()">⚡ cc ${escapeHtml(ccVer)}</div>`
-    : '';
+  const sysSubline = ccVer ? 'cc ' + ccVer : '';
 
   // Compute step stats for Timeline badge
   const previewSteps = e.reqLoaded ? getCachedSteps(req.messages, resEvents) : [];
@@ -1207,25 +1205,33 @@ function renderSectionsCol(idx) {
 
   function renderSectionItem(s) {
     const sel = selectedSection === s.name ? ' selected' : '';
-    let h = '<div class="section-item' + sel + '" data-section="' + s.name + '" onclick="selectSection(&quot;' + s.name + '&quot;)">';
+    const hasSub = !!s.subline;
+    const cls = 'section-item' + sel + (hasSub ? ' has-subline' : '');
     const dot = s.color ? '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:' + s.color + ';margin-right:5px;flex-shrink:0"></span>' : '<span style="display:inline-block;width:7px;margin-right:5px"></span>';
-    h += '<span class="si-name">' + dot + s.label + '</span>';
-    if (s.badge) h += '<span class="si-badge">' + escapeHtml(s.badge) + '</span>';
-    if (s.extra) h += s.extra;
-    h += '<span class="si-arrow">›</span></div>';
+    let main = '<span class="si-name">' + dot + s.label + '</span>';
+    if (s.badge) main += '<span class="si-badge">' + escapeHtml(s.badge) + '</span>';
+    main += '<span class="si-arrow">›</span>';
+    let h = '<div class="' + cls + '" data-section="' + s.name + '" onclick="selectSection(&quot;' + s.name + '&quot;)">';
+    if (hasSub) {
+      h += '<div class="si-main">' + main + '</div>';
+      h += '<div class="si-subline" onclick="event.stopPropagation();openSystemPromptPanel()">' + escapeHtml(s.subline) + '</div>';
+    } else {
+      h += main;
+    }
+    h += '</div>';
     return h;
   }
 
   // Timeline — independent top-level, not in any group
   const timelineBadge = stepCount ? stepCount + ' steps' + (stepErrorCount ? ' · ' + stepErrorCount + '✗' : '') : (e.reqLoaded ? '' : '…');
-  html += renderSectionItem({ name: 'timeline', label: 'Timeline', color: 'var(--color-messages)', badge: timelineBadge, extra: '' });
+  html += renderSectionItem({ name: 'timeline', label: 'Timeline', color: 'var(--color-messages)', badge: timelineBadge });
 
   // CONTEXT group (replaces REQUEST)
   html += '<div class="section-group-title">CONTEXT</div>';
   const contextSections = [
-    { name: 'system',     label: 'System',     color: 'var(--color-system)', badge: tok.system ? fmt(tok.system) + ' tok' : (req.system ? '' : (e.reqLoaded ? '' : '…')), extra: sysVerBadge },
-    { name: 'core-tools', label: 'Core',        color: 'var(--color-tools)', badge: coreTools ? coreTools.length + ' tools' + (coreCalls ? ' · ' + coreCalls + '×' : '') : (e.reqLoaded ? '' : '…'), extra: '' },
-    { name: 'mcp-tools',  label: 'MCP',         color: 'var(--color-mcp-tools)', badge: mcpTools  ? mcpTools.length  + ' tools' + (mcpCalls  ? ' · ' + mcpCalls  + '×' : '') : (e.reqLoaded ? '' : '…'), extra: '' },
+    { name: 'system',     label: 'System',     color: 'var(--color-system)', badge: tok.system ? fmt(tok.system) + ' tok' : (req.system ? '' : (e.reqLoaded ? '' : '…')), subline: sysSubline },
+    { name: 'core-tools', label: 'Core',        color: 'var(--color-tools)', badge: coreTools ? coreTools.length + ' tools' + (coreCalls ? ' · ' + coreCalls + '×' : '') : (e.reqLoaded ? '' : '…') },
+    { name: 'mcp-tools',  label: 'MCP',         color: 'var(--color-mcp-tools)', badge: mcpTools  ? mcpTools.length  + ' tools' + (mcpCalls  ? ' · ' + mcpCalls  + '×' : '') : (e.reqLoaded ? '' : '…') },
   ];
   for (const s of contextSections) { html += renderSectionItem(s); }
   // Skills section — shown when Skill tool is available or skills were invoked
@@ -1250,17 +1256,17 @@ function renderSectionsCol(idx) {
     } else {
       skillBadge = '';
     }
-    html += renderSectionItem({ name: 'skills', label: 'Skills', color: 'var(--purple)', badge: skillBadge, extra: '' });
+    html += renderSectionItem({ name: 'skills', label: 'Skills', color: 'var(--purple)', badge: skillBadge });
   }
 
   // ANALYSIS group
   html += '<div class="section-group-title">ANALYSIS</div>';
-  html += renderSectionItem({ name: 'cost-efficiency', label: '💰 Cost Efficiency', color: null, badge: '', extra: '' });
+  html += renderSectionItem({ name: 'cost-efficiency', label: '💰 Cost Efficiency', color: null, badge: '' });
 
   // RAW group (simplified to 2 items)
   html += '<div class="section-group-title">RAW</div>';
-  html += renderSectionItem({ name: 'raw-req', label: 'Request', color: null, badge: '', extra: '' });
-  html += renderSectionItem({ name: 'raw-res', label: 'Events', color: null, badge: resEvents.length ? resEvents.length + ' events' : '', extra: '' });
+  html += renderSectionItem({ name: 'raw-req', label: 'Request', color: null, badge: '' });
+  html += renderSectionItem({ name: 'raw-res', label: 'Events', color: null, badge: resEvents.length ? resEvents.length + ' events' : '' });
   if (!e.reqLoaded) html += '<div style="padding:8px 12px;font-size:11px;color:var(--dim)">⏳ Loading…</div>';
   colSections.innerHTML = html;
 }
