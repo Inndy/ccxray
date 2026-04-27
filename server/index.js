@@ -215,11 +215,10 @@ const server = http.createServer((clientReq, clientRes) => {
       broadcastSessionStatus(reqSessionId);
     }
 
-    // Terminal summary
+    // Session banner only here. REQUEST line + per-session counter +
+    // attribution prefix are emitted from forwardRequest() at forward time
+    // so intercepted-then-rejected requests do not advance the counter.
     if (isNewSession) store.printSessionBanner(reqSessionId);
-    helpers.printSeparator();
-    console.log(`\x1b[36m📤 REQUEST  [${ts}]  ${clientReq.method} ${clientReq.url}\x1b[0m`);
-    if (parsedBody) console.log(helpers.summarizeRequest(parsedBody));
 
     // Build context for forwarding
     const fwdHeaders = { ...clientReq.headers };

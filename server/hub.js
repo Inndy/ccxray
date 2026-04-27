@@ -309,6 +309,17 @@ function removeClient(pid) {
   if (clients.size === 0) startIdleTimer();
 }
 
+// Returns the cwd of the unique registered client, or null when zero or
+// more than one client is connected (ambiguous in multi-project hub mode).
+// Used by the request log path as a fallback when sessionMeta has no cwd
+// for a session (e.g. the very first request of a session that lacked
+// the system prompt block carrying "Primary working directory").
+function lookupClientCwd() {
+  if (clients.size !== 1) return null;
+  const only = clients.values().next().value;
+  return only && only.cwd ? only.cwd : null;
+}
+
 function startIdleTimer() {
   if (idleTimer) return;
   idleTimer = setTimeout(() => {
@@ -484,6 +495,7 @@ module.exports = {
   truncateHubLog,
   addClient,
   removeClient,
+  lookupClientCwd,
   startIdleTimer,
   setOnShutdown,
   shutdownHub,

@@ -9,6 +9,7 @@ const { calculateCost } = require('./pricing');
 const helpers = require('./helpers');
 const { broadcast, broadcastSessionStatus, broadcastSessionTitleUpdate } = require('./sse-broadcast');
 const { appendSample, collectRatelimitHeaders } = require('./ratelimit-log');
+const hub = require('./hub');
 
 // For title-generator subagent responses, extract the clean title from the
 // JSON payload and (when attribution succeeds) stamp it onto the parent
@@ -50,6 +51,9 @@ function computeThinkingStripped(isSubagent, reqSessionId, currMsgCount, parsedB
 let statusLineEnabled = true;
 function setStatusLineEnabled(val) { statusLineEnabled = !!val; }
 function getStatusLineEnabled() { return statusLineEnabled; }
+
+// Track sessions where we've already logged HUD injection — keeps logs quiet.
+const _hudLoggedSessions = new Set();
 
 // ── HTTPS CONNECT tunnel agent for corporate proxies ─────────────────
 
@@ -129,6 +133,42 @@ function stripInjectedStats(parsedBody) {
 // ── Forward request to Anthropic ─────────────────────────────────────
 function forwardRequest(ctx) {
   const { id, ts, startTime, parsedBody, rawBody, clientReq, clientRes, fwdHeaders, reqSessionId } = ctx;
+
+  // Counter + attribution prefix are committed here, not at request receipt.
+  // This guarantees intercepted-then-rejected requests never advance the
+  // per-session sequence number that the dashboard's displayNum mirrors.
+  // Counter classification uses !extractCwd to match dashboard's isSubagent.
+  if (!ctx.skipEntry && parsedBody) {
+    const meta = reqSessionId ? (store.sessionMeta[reqSessionId] || (store.sessionMeta[reqSessionId] = {})) : null;
+    const isSubagent = !store.extractCwd(parsedBody);
+    if (meta) {
+      if (isSubagent) meta.subCount = (meta.subCount || 0) + 1;
+      else meta.mainCount = (meta.mainCount || 0) + 1;
+    }
+    const sessNumStr = meta
+      ? (isSubagent ? ('s' + meta.subCount) : String(meta.mainCount))
+      : null;
+    let cwdForPrefix = meta?.cwd || null;
+    if (!cwdForPrefix && reqSessionId && reqSessionId !== 'direct-api') {
+      cwdForPrefix = hub.lookupClientCwd();
+    }
+    const isOrphan = isSubagent && ctx.sessionInferred && !cwdForPrefix && (!reqSessionId || reqSessionId === 'direct-api');
+    const turnStep = helpers.computeTurnStep(parsedBody.messages);
+    ctx.attribPrefix = helpers.renderAttributionPrefix({
+      sessionId: reqSessionId,
+      cwd: cwdForPrefix,
+      sessNum: sessNumStr,
+      turn: turnStep.turn,
+      step: turnStep.step,
+      sessionInferred: ctx.sessionInferred,
+      isQuotaCheck: false,
+      isOrphan,
+      reqId: id,
+    });
+    helpers.printSeparator();
+    console.log(`\x1b[36m📤 [${ts}]  ${ctx.attribPrefix}  ${clientReq.method} ${clientReq.url}\x1b[0m`);
+    console.log(helpers.summarizeRequest(parsedBody));
+  }
 
   // Remove previously injected stats so they don't accumulate in conversation
   const statsStripped = stripInjectedStats(parsedBody);
@@ -267,6 +307,10 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
     }, '');
     const totalCtx = helpers.totalContextTokens(usage);
     if (usage && totalCtx && stopReason !== 'tool_use' && statusLineEnabled) {
+      if (reqSessionId && !_hudLoggedSessions.has(reqSessionId)) {
+        console.log(`\x1b[90m   Context HUD: injecting into session ${reqSessionId.slice(0, 8)}\x1b[0m`);
+        _hudLoggedSessions.add(reqSessionId);
+      }
       const maxCtx = config.getMaxContext(parsedBody?.model, parsedBody?.system);
       const pct = (totalCtx / maxCtx * 100).toFixed(1);
       const newIdx = maxBlockIndex + 1;
@@ -352,7 +396,6 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
       || null;
     const toolFail = helpers.hasToolFail(parsedBody);
     const thinkingDuration = helpers.computeThinkingDuration(events);
-    const thinkingBudget = parsedBody?.thinking?.budget_tokens ?? null;
     const currMsgCount = parsedBody?.messages?.length || 0;
     const thinkingStripped = computeThinkingStripped(isSubagent, reqSessionId, currMsgCount, parsedBody);
     const entry = {
@@ -378,7 +421,6 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
       sysHash: ctx.sysHash || null,
       toolsHash: ctx.toolsHash || null,
       coreHash: ctx.coreHash || null,
-      thinkingBudget,
       thinkingStripped,
     };
     entry.hasCredential = helpers.entryHasCredential(entry) || undefined;
@@ -402,7 +444,6 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
       receivedAt: startTime,
       sysHash: ctx.sysHash || null, toolsHash: ctx.toolsHash || null,
       coreHash: entry.coreHash,
-      thinkingBudget: entry.thinkingBudget,
       thinkingStripped: entry.thinkingStripped,
       hasCredential: entry.hasCredential,
       toolSources: entry.toolSources,
@@ -415,7 +456,13 @@ function handleSSEResponse(ctx, proxyRes, clientRes) {
     entry._loaded = false;
 
     // Terminal summary
-    console.log(`\x1b[32m📥 RESPONSE [${helpers.taipeiTime()}]  (${elapsed}s)  status=${proxyRes.statusCode}\x1b[0m`);
+    const code = proxyRes.statusCode;
+    const ok = code >= 200 && code < 300;
+    const glyph = ok ? '✓' : '✗';
+    const color = ok ? '\x1b[32m' : '\x1b[31m';
+    const outTok = usage?.output_tokens ? `  out=${usage.output_tokens.toLocaleString()} tok` : '';
+    const prefix = ctx.attribPrefix || '';
+    console.log(`${color}📥 [${helpers.taipeiTime()}]  ${prefix}  ${glyph} ${code}  ${elapsed}s${outTok}\x1b[0m`);
     if (usage) helpers.printContextBar(usage, parsedBody?.model, parsedBody?.system);
     if (costInfo?.cost != null) {
       store.sessionCosts.set(sessionId, (store.sessionCosts.get(sessionId) || 0) + costInfo.cost);
@@ -475,7 +522,6 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
       || null;
     const toolFail = helpers.hasToolFail(parsedBody);
     const stopReason = resData?.stop_reason || '';
-    const thinkingBudget = parsedBody?.thinking?.budget_tokens ?? null;
     const currMsgCount = parsedBody?.messages?.length || 0;
     const thinkingStripped = computeThinkingStripped(isSubagent, reqSessionId, currMsgCount, parsedBody);
     const entry = {
@@ -500,7 +546,6 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
       sysHash: ctx.sysHash || null,
       toolsHash: ctx.toolsHash || null,
       coreHash: ctx.coreHash || null,
-      thinkingBudget,
       thinkingStripped,
     };
     entry.hasCredential = helpers.entryHasCredential(entry) || undefined;
@@ -522,7 +567,6 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
       receivedAt: startTime,
       sysHash: ctx.sysHash || null, toolsHash: ctx.toolsHash || null,
       coreHash: entry.coreHash,
-      thinkingBudget: entry.thinkingBudget,
       thinkingStripped: entry.thinkingStripped,
       hasCredential: entry.hasCredential,
       toolSources: entry.toolSources,
@@ -534,7 +578,17 @@ function handleNonSSEResponse(ctx, proxyRes, clientRes) {
     entry.res = null;
     entry._loaded = false;
 
-    console.log(`\x1b[32m📥 RESPONSE [${helpers.taipeiTime()}]  (${elapsed}s)  status=${proxyRes.statusCode}\x1b[0m`);
+    const code2 = proxyRes.statusCode;
+    const ok2 = code2 >= 200 && code2 < 300;
+    const glyph2 = ok2 ? '✓' : '✗';
+    const color2 = ok2 ? '\x1b[32m' : '\x1b[31m';
+    let errTag = '';
+    if (!ok2 && resData && typeof resData === 'object') {
+      const t = resData.error?.type || resData.type;
+      if (t) errTag = '  ' + t;
+    }
+    const prefix2 = ctx.attribPrefix || '';
+    console.log(`${color2}📥 [${helpers.taipeiTime()}]  ${prefix2}  ${glyph2} ${code2}  ${elapsed}s${errTag}\x1b[0m`);
     helpers.printSeparator();
     console.log();
   });

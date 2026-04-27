@@ -1,6 +1,7 @@
 'use strict';
 
 const { countTokens } = require('@anthropic-ai/tokenizer');
+const { isInjectedText } = require('../shared/injected-tags');
 
 // ── Helpers ─────────────────────────────────────────────────────────
 function timestamp() {
@@ -260,26 +261,72 @@ function extractUsage(resData) {
   return result;
 }
 
+// Pure: { turn, step } from a Claude API messages[] array.
+// turn = count of human-text user openers (role:user with at least one text
+//        block whose text is not an injected tag like <system-reminder>).
+// step = count of role:user messages from the last human-text opener
+//        inclusive to the end of the array (i.e. how many user messages
+//        belong to the current logical turn so far, including this one).
+function computeTurnStep(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return { turn: 0, step: 0 };
+  let turn = 0;
+  let lastOpenerIdx = -1;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!m || m.role !== 'user') continue;
+    const blocks = Array.isArray(m.content)
+      ? m.content
+      : [{ type: 'text', text: typeof m.content === 'string' ? m.content : '' }];
+    const isOpener = blocks.some(b =>
+      b && b.type === 'text' && typeof b.text === 'string' && b.text.length > 0 && !isInjectedText(b.text)
+    );
+    if (isOpener) { turn++; lastOpenerIdx = i; }
+  }
+  if (lastOpenerIdx < 0) return { turn: 0, step: 0 };
+  let step = 0;
+  for (let i = lastOpenerIdx; i < messages.length; i++) {
+    if (messages[i] && messages[i].role === 'user') step++;
+  }
+  return { turn, step };
+}
+
+function projectBasename(cwd) {
+  if (!cwd || typeof cwd !== 'string') return '?';
+  if (cwd.startsWith('(')) return cwd; // already a label like '(quota-check)'
+  const parts = cwd.split('/').filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '?';
+}
+
+// Builds the attribution prefix shown on REQUEST and RESPONSE log lines.
+// ctx fields:
+//   sessionId, cwd, sessNum, turn, step, sessionInferred, isQuotaCheck, isOrphan, reqId
+function renderAttributionPrefix(ctx) {
+  if (!ctx) return '[?]';
+  if (ctx.isQuotaCheck) return '[quota-check]';
+  if (ctx.isOrphan) {
+    const id = (ctx.reqId || '').slice(0, 12) || '?';
+    return `[orphan/${id}]`;
+  }
+  const sid = ctx.sessionId || '?';
+  const sidLabel = sid === 'direct-api' ? 'direct-api' : sid.slice(0, 8);
+  const tilde = ctx.sessionInferred ? '~' : '';
+  const proj = projectBasename(ctx.cwd);
+  const sessNum = (ctx.sessNum != null && ctx.sessNum !== '') ? `#${ctx.sessNum} ` : '';
+  const turn = (ctx.turn != null && ctx.turn > 0) ? `R${ctx.turn}.${ctx.step || 1}` : 'R?.?';
+  return `[${proj}/${sidLabel}${tilde} · ${sessNum}${turn}]`;
+}
+
 function summarizeRequest(body) {
-  const lines = [];
-  lines.push(`  Model:     ${body.model || '?'}`);
-  if (body.system) {
-    const text = typeof body.system === 'string' ? body.system : JSON.stringify(body.system);
-    lines.push(`  System:    ${safeCountTokens(text).toLocaleString()} tokens`);
-  }
-  if (body.tools && body.tools.length > 0) {
-    const names = body.tools.map(t => t.name);
-    const preview = names.slice(0, 7).join(', ');
-    const suffix = names.length > 7 ? `, … (${names.length} total)` : '';
-    lines.push(`  Tools:     ${names.length} [${preview}${suffix}]`);
-  }
-  if (body.messages && body.messages.length > 0) {
-    const msgs = body.messages;
-    const userCount = msgs.filter(m => m.role === 'user').length;
-    const asstCount = msgs.filter(m => m.role === 'assistant').length;
-    lines.push(`  Messages:  ${msgs.length} (${userCount} user, ${asstCount} assistant)`);
-  }
-  return lines.join('\n');
+  if (!body) return '';
+  const model = body.model || '?';
+  const sysTokens = body.system
+    ? safeCountTokens(typeof body.system === 'string' ? body.system : JSON.stringify(body.system))
+    : 0;
+  const msgCount = body.messages?.length || 0;
+  const parts = [model];
+  if (sysTokens > 0) parts.push(`sys ${sysTokens.toLocaleString()}`);
+  parts.push(`msgs ${msgCount}`);
+  return '   ' + parts.join(' · ');
 }
 
 function totalContextTokens(usage) {
@@ -613,6 +660,8 @@ module.exports = {
   tokenizeRequest,
   extractUsage,
   summarizeRequest,
+  computeTurnStep,
+  renderAttributionPrefix,
   totalContextTokens,
   printContextBar,
   computeThinkingDuration,
