@@ -17,6 +17,7 @@ dogfood-output/
 .agents/
 skills-lock.json
 ccxray-init.png
+videos/
 --full-page
 --output
 --selector

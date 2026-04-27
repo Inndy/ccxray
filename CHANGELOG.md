@@ -1,5 +1,67 @@
 # Changelog
 
+## 1.7.0
+
+### Added
+
+**Per-line attribution in `~/.ccxray/hub.log`**
+
+- **REQUEST and RESPONSE lines now self-identify**: every proxy log line carries `[<project>/<session8> · #<sessNum> R<turn>.<step>]` in front, plus a `✓` / `✗` glyph on responses. Hub mode with multiple projects can now be `grep`'d by project (`grep "[ccxray/" hub.log`), and any single line in isolation tells you which conversation, which human input round, and which tool-loop step it came from. Special prefixes for the non-standard cases: `[quota-check]`, `[orphan/<reqId>]`, `direct-api` rendered verbatim, and a trailing `~` when session attribution was inferred from temporal heuristics rather than an explicit session_id.
+
+- **Logical turn / step computation** (`computeTurnStep` in `server/helpers.js`) — pure function deriving turn (count of human-text user messages in `messages[]`) and step (user-message count from the last human-text opener inclusive to end). Treats `<system-reminder>`, `<user-prompt-submit-hook>`, `<context>`, and antml-injected blocks as system noise, not turn openers. The same regex the dashboard uses, now extracted to `shared/injected-tags.js` with a CI drift-guard test that fails if the dashboard's inline copy diverges.
+
+- **Hub-aware cwd fallback**: when a session's first logged request lacks `Primary working directory:` in its system prompt (e.g. immediately after a quota check), the prefix's `<project>` field falls back to the hub's unique registered client cwd instead of `?` — most first-of-session lines now show their project name from line 1.
+
+**Context HUD discoverability**
+
+- **Context HUD toggle in topbar** (originally contributed by @jspelletier as "Inject stats"; renamed and made discoverable in this release), persisted in `~/.ccxray/settings.json`. The 📊 Context stats block appended to Claude responses can now be turned off — important for sub-agent workflows where the injected block was truncating the Agent tool result visible to the parent Claude. Tooltip shows the literal HUD line that gets appended (`📊 Context: 28% (290k/1M) | 1k in + 800 out | Cache 99% hit | $0.15`) so the trade-off is visible before flipping it.
+
+- **Startup + toggle log lines**: server prints `Context HUD: enabled/disabled (settings.json)` on first settings load and `(toggled from dashboard)` on each flip — terminal-side users see the state without having to look at the dashboard.
+
+**Other observability signals**
+
+- **`coreHash` per entry**: MD5 of the system prompt's core-instructions block (distinct from `sysHash` which covers the whole system block). Lets the dashboard distinguish "system prompt changed" from "tools list changed" without diffing — useful when chasing why a session's behaviour shifted mid-conversation.
+
+- **"Thinking stripped" badge** on turn cards: when the previous non-subagent turn in the same session had thinking blocks and the current request has none (and message count didn't drop, ruling out compaction), the card flags it. Catches client-side regressions where thinking content gets dropped before forwarding.
+
+- **Storage-aware log retention**: `pruneLogs` now routes through the storage adapter's new `deleteFile()` method, so S3/R2 backends and `CCXRAY_HOME` overrides get pruned correctly. Pre-1.7.0 the prune was hardcoded to local `fs.unlinkSync`, silently no-op'ing on non-local storage and producing 404s on lazy-load when `RESTORE_DAYS > LOG_RETENTION_DAYS`. Pruning is also now re-ordered to run **after** restore, so payload files for any in-memory entry are protected from deletion.
+
+### Changed
+
+- **REQUEST / RESPONSE log line format**: was `📤 REQUEST [HH:MM:SS]  METHOD URL` followed by a four-line `Model / System / Tools / Messages` summary. Is now a two-line layout — line 1 is `📤 [HH:MM:SS]  [<prefix>]  METHOD URL`, line 2 is the indented `model · sys N · msgs M`. The `Messages: 42 (21 user, 21 assistant)` line is gone (turn / step in the prefix conveys the same shape more directly). The `Tools: …` list is also gone — tool changes are tracked by hash and visible in the dashboard. **If you script against `hub.log`, your parsers will need updating.**
+
+- **Session banner fires once per session, not per switch**: the `★★★ NEW SESSION ★★★` line previously printed every time the active session id differed from the last one seen (`realId !== currentSessionId`). In hub mode running two projects, switching A → B → A printed three banners — visually implying three new sessions when there were only two. The trigger is now "first sighting of this sid" via per-sid `bannerPrinted` flag; switching back to a known session no longer banners. `direct-api` keeps the existing reset-on-msgcount-drop behaviour (a fresh direct-api conversation is treated as a new session).
+
+- **`⚡ cc version` moved from a framed badge to a muted subline** under the System row. The framed badge crowded the row and forced the `6,xxx tok` chip onto a wrapped second line. Subline is small, dim, no icon, right-aligned to the badge's right edge.
+
+- **Settings reads now O(1)** from an in-memory cache after first startup load. Pre-1.7.0 every `GET` / `POST` `_api/settings` did a synchronous disk read, blocking the event loop on hub-shared workspaces with frequent toggles.
+
+### Fixed
+
+- **Sub-agent tool-result truncation**: the injected 📊 Context stats block was being clipped from the Agent tool result visible to the parent Claude in sub-agent workflows. Toggling the Context HUD off (now persisted across restarts) avoids it. — thanks @jspelletier!
+
+- **`POST /_api/settings` falling through to the GET handler**: the settings POST endpoint was missing a method check, so writes from the dashboard occasionally landed in the wrong handler and silently no-op'd. Now correctly routed.
+
+- **Settings write errors silently ignored**: write failures (disk full, permissions) used to be swallowed. They now log to stderr and the dashboard reverts the toggle UI to the persisted state on failure.
+
+- **`cc_version` regex bug** in `miller-columns.js` (`(S+?)` → `(\S+?)`): the version capture group was unanchored and matched stray characters under some prompt shapes.
+
+- **Session filter flash on new card insert**: the filter would briefly show the new card before re-applying, producing a visible flash. The filter is now applied at insert-time.
+
+- **Clicking an already-selected project no longer deselects it**: was a UX papercut where a stray click cleared the project filter.
+
+- **HTML `lang` attribute**: was `zh-TW`, corrected to `en`. — thanks @jspelletier!
+
+### Removed
+
+- **`thinkingBudget` from turn cards and SSE broadcast** (briefly added during this cycle): the `budget:high/med/low` indicator on turn-card line 4 was carrying no actionable information — `thinking_budget` is set client-side and doesn't change per-turn in a way that warranted dedicated UI real estate. Both the per-entry field and the line-4 render are gone.
+
+### Thanks
+
+- [@jspelletier](https://github.com/jspelletier) — original "Inject stats" toggle implementation, which this release renamed to "Context HUD" and made discoverable, plus the HTML `lang` fix.
+- Claude Sonnet 4.6 — co-author on 6 commits (settings cache, filter flash, project deselect, etc.).
+- Claude Opus 4.7 (1M context) — co-author on 6 commits (log attribution prefix, turn card signals, banner once-per-session, etc.).
+
 ## 1.6.0
 
 ### Breaking
