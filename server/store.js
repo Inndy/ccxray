@@ -152,13 +152,17 @@ function attributeTitleGen(parsedBody, receivedAt, windowMs = 1000) {
 function detectSession(req) {
   const realId = extractSessionId(req);
 
-  // Explicit session_id → authoritative
+  // Explicit session_id → authoritative.
+  // isNewSession reflects "first time we have ever seen this sid",
+  // not "different from the last sid" — switching A→B→A only banners A once.
   if (realId) {
-    const isNew = realId !== currentSessionId;
+    const meta = sessionMeta[realId] || (sessionMeta[realId] = {});
+    const isNew = !meta.bannerPrinted;
     if (isNew) {
+      meta.bannerPrinted = true;
       sessionCounter++;
-      currentSessionId = realId;
     }
+    currentSessionId = realId; // always update last-seen pointer for getCurrentSessionId fallback
     lastMsgCount = req?.messages?.length || 0;
     recordFirstUserMsg(realId, req);
     return { sessionId: currentSessionId, isNewSession: isNew };
@@ -179,8 +183,13 @@ function detectSession(req) {
   if (parent) return { sessionId: parent, isNewSession: false, inferred: true };
 
   // True fallback: no active session within 30s → genuine new direct-api session.
-  const isNew = !currentSessionId || (req?.messages?.length || 0) < lastMsgCount;
+  // direct-api re-banners on conversation reset (msg count drops) — that is a
+  // distinct conversation under the same sentinel id, treated as a new session.
+  const dMeta = sessionMeta['direct-api'] || (sessionMeta['direct-api'] = {});
+  const isReset = (req?.messages?.length || 0) < lastMsgCount;
+  const isNew = !dMeta.bannerPrinted || isReset;
   if (isNew) {
+    dMeta.bannerPrinted = true;
     sessionCounter++;
     currentSessionId = 'direct-api';
   }

@@ -168,7 +168,9 @@ describe('store', () => {
       resetSessionState(store);
 
       store.detectSession(mainReq('aaa-111', 3));
-      store.sessionMeta['aaa-111'] = { cwd: '/a', lastSeenAt: Date.now() };
+      // Merge in-place: replacing the object would clobber bookkeeping flags
+      // (e.g. bannerPrinted) that detectSession set on this entry.
+      Object.assign(store.sessionMeta['aaa-111'], { cwd: '/a', lastSeenAt: Date.now() });
       store.activeRequests['aaa-111'] = 1;
 
       store.detectSession(bareSubagentReq());
