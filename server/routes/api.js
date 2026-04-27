@@ -164,6 +164,7 @@ function handleApiRoutes(clientReq, clientRes) {
         {
           updated.statusLine = patch.statusLine;
           forward.setStatusLineEnabled(patch.statusLine);
+          console.log(`\x1b[90m   Context HUD: ${patch.statusLine ? 'enabled' : 'disabled'} (toggled from dashboard)\x1b[0m`);
         }
         writeSettings(updated);
         clientRes.writeHead(200, { 'Content-Type': 'application/json' });

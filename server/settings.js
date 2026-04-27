@@ -16,10 +16,16 @@ let _cache = null;
 
 function readSettings() {
   if (_cache) return { ..._cache };
+  let firstLoad = false;
   try {
     _cache = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) };
+    firstLoad = true;
   } catch {
     _cache = { ...DEFAULTS };
+    firstLoad = true;
+  }
+  if (firstLoad) {
+    console.log(`\x1b[90m   Context HUD: ${_cache.statusLine ? 'enabled' : 'disabled'} (settings.json)\x1b[0m`);
   }
   return { ..._cache };
 }
