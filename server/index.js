@@ -16,6 +16,7 @@ const { readSettings } = require('./settings');
 const { broadcastSessionStatus, broadcastPendingRequest } = require('./sse-broadcast');
 const { authMiddleware } = require('./auth');
 const { extractAgentType, splitB2IntoBlocks } = require('./system-prompt');
+const { findSharedPrefix } = require('./delta-helpers');
 
 // ── CLI: parse flags and detect "claude" subcommand ──
 const portIdx = process.argv.indexOf('--port');
@@ -39,6 +40,11 @@ const claudeArgs = claudeMode ? process.argv.slice(3) : [];
 // In claude/hub mode, mute startup logs so they don't pollute output.
 const _origLog = console.log;
 if (claudeMode || hubMode) console.log = () => {};
+
+// ── Delta log storage ────────────────────────────────────────────────
+// sessionLastReq tracks the most recent req per session for delta writes.
+// Only populated for sessions with explicit session_id (main orchestrator turns).
+const sessionLastReq = new Map(); // sessionId → { id, messages, deltaCount }
 
 // Route handlers
 const { handleSSERoute } = require('./routes/sse');
@@ -152,13 +158,35 @@ const server = http.createServer((clientReq, clientRes) => {
       if (toolsHash) config.storage.writeSharedIfAbsent(`tools_${toolsHash}.json`, JSON.stringify(parsedBody.tools))
         .catch(e => console.error('Write tools failed:', e.message));
 
-      const stripped = {
-        model: parsedBody.model,
-        max_tokens: parsedBody.max_tokens,
-        messages: parsedBody.messages,
-        sysHash,
-        toolsHash,
-      };
+      const currMessages = Array.isArray(parsedBody.messages) ? parsedBody.messages : [];
+      const peekSid = store.extractSessionId(parsedBody);
+      let stripped;
+
+      if (peekSid && config.storage.supportsDelta) {
+        const prev = sessionLastReq.get(peekSid);
+        const sharedCount = prev ? findSharedPrefix(prev.messages, currMessages) : 0;
+        const forceFull = !prev ||
+          (config.DELTA_SNAPSHOT_N > 0 && (prev.deltaCount || 0) >= config.DELTA_SNAPSHOT_N);
+
+        if (!forceFull && sharedCount >= 2) {
+          stripped = {
+            model: parsedBody.model,
+            max_tokens: parsedBody.max_tokens,
+            prevId: prev.id,
+            msgOffset: sharedCount,
+            messages: currMessages.slice(sharedCount),
+            sysHash,
+            toolsHash,
+          };
+          sessionLastReq.set(peekSid, { id, messages: currMessages, deltaCount: (prev.deltaCount || 0) + 1 });
+        } else {
+          stripped = { model: parsedBody.model, max_tokens: parsedBody.max_tokens, messages: currMessages, sysHash, toolsHash };
+          sessionLastReq.set(peekSid, { id, messages: currMessages, deltaCount: 0 });
+        }
+      } else {
+        stripped = { model: parsedBody.model, max_tokens: parsedBody.max_tokens, messages: currMessages, sysHash, toolsHash };
+      }
+
       reqWritePromise = config.storage.write(id, '_req.json', JSON.stringify(stripped))
         .catch(e => console.error('Write req.json failed:', e.message));
     }
