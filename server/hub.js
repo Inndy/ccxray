@@ -209,6 +209,7 @@ function forkHub(port) {
   const child = spawn(process.execPath, [hubScript, ...args], {
     detached: true,
     stdio: ['ignore', fd, fd],
+    windowsHide: true,
     env: { ...process.env },
   });
   child.unref();
