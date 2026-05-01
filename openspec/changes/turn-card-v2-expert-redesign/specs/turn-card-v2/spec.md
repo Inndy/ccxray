@@ -124,8 +124,12 @@ Line 3 is a full-width color bar representing token composition. The dual labels
 
 #### Scenario: hit% label color
 
-- **WHEN** hit% label is visible
-- **THEN** `hit:NN%` label is always cache-read color (cyan), regardless of value
+- **WHEN** `hit:NN%` < 10
+- **THEN** label renders red via `.hit-cold` class (overrides default)
+- **WHEN** `hit:NN%` ≥ 10
+- **THEN** label renders cyan via `.turn-hit-pct` default color (`var(--color-cache-read)`, no extra class)
+
+> Shipped CSS: `.turn-hit-pct` defaults to `var(--color-cache-read)` (cyan); `.turn-hit-pct.hit-cold` overrides to red. Rationale: `<10%` is an actionable warning (cost spike, cache invalidation) so it is colored red; values ≥10% match the cache-read bar segment elsewhere on the card.
 
 #### Scenario: Bar segment colors
 
